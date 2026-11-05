@@ -5,6 +5,7 @@ import re
 import subprocess
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.personal/work'
@@ -33,6 +34,26 @@ def launch():
     (WORK / 'emulator-ui.txt').write_text(ui)
     if PACKAGE not in ui:
         raise RuntimeError('Personal app did not present its window')
+    maps = ''.join(adb('shell', 'cat', f'/proc/{pid}/maps')
+                   for pid in adb('shell', 'pidof', PACKAGE).split())
+    if 'libclash.so' not in maps:
+        raise RuntimeError('Signed APK did not load the bundled Android Go core')
+
+
+def seed_preferences():
+    prefs = ET.Element('map')
+    ET.SubElement(prefs, 'string', name='flutter.config').text = json.dumps({
+        'appSettingProps': {'acceptedDisclaimerVersion': 1, 'locale': 'en'},
+        'themeProps': {},
+    })
+    fixture = WORK / 'emulator-preferences.xml'
+    ET.ElementTree(prefs).write(fixture, encoding='utf-8', xml_declaration=True)
+    directory = f'/data/user/0/{PACKAGE}/shared_prefs'
+    uid = adb('shell', 'stat', '-c', '%u', f'/data/user/0/{PACKAGE}').strip()
+    adb('shell', 'mkdir', '-p', directory)
+    adb('push', str(fixture), directory + '/FlutterSharedPreferences.xml')
+    adb('shell', 'chown', '-R', f'{uid}:{uid}', directory)
+    adb('shell', 'restorecon', '-RF', directory)
 
 
 older = APK
@@ -45,6 +66,7 @@ if (WORK / 'previous.json').exists():
 adb('root')
 adb('wait-for-device')
 adb('install', '-r', str(older))
+seed_preferences()
 launch()
 before = adb('shell', 'dumpsys', 'package', PACKAGE)
 sentinel = f'/data/user/0/{PACKAGE}/files/personal-upgrade-smoke'
@@ -59,4 +81,8 @@ for field in ('userId', 'firstInstallTime'):
 if adb('shell', 'cat', sentinel).strip() != 'personal-data-survives':
     raise RuntimeError('Overlay install lost private application data')
 launch()
-print('Signed x86_64 APK starts and overlays without replacing Android app identity.')
+prefs = ET.fromstring(adb('shell', 'cat', f'/data/user/0/{PACKAGE}/shared_prefs/FlutterSharedPreferences.xml'))
+config = json.loads(next(node.text for node in prefs if node.get('name') == 'flutter.config'))
+if config['appSettingProps']['acceptedDisclaimerVersion'] != 1 or config['appSettingProps']['locale'] != 'en':
+    raise RuntimeError('Overlay install lost persisted app settings')
+print('Signed APK loads its bundled Go core; overlay preserves identity, private data and settings.')

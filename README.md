@@ -1,3 +1,5 @@
+> **FLClash Personal (Chen017)** — Android builds with independent XHTTP upload/download routes and 0-RTT recovery. [Download personal APKs](https://github.com/Chen017/FlClash/releases/latest) · [Automatic builds](https://github.com/Chen017/FlClash/actions/workflows/personal-android.yml) · [Migration and maintenance](.personal/README.md). Separate package/signature from the official app. Original upstream documentation follows.
+
 <div align="center">
 
 <img src="assets/images/icon.png" alt="FlClash" width="88">

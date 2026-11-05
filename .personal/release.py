@@ -66,6 +66,14 @@ def checked_patch(path, cwd):
     raise RuntimeError(f'{path.name} conflicts with upstream; last working release is preserved')
 
 
+def next_build(previous, refs):
+    numbers = [previous['build_number'] if previous else 0]
+    for ref in refs:
+        if match := re.fullmatch(r'refs/tags/v\d+\.\d+\.\d+\+(\d+)', ref['ref']):
+            numbers.append(int(match[1]))
+    return max(numbers) + 1
+
+
 def prepare():
     STATE.mkdir(parents=True, exist_ok=True)
     release = api(f'repos/{UPSTREAM}/releases/latest')
@@ -89,7 +97,7 @@ def prepare():
     if not needed:
         print('Stable app and maintained patches unchanged; no rebuild required.')
         return
-    number = last['build_number'] + 1 if last else 1
+    number = next_build(last, api(f'repos/{REPO}/git/matching-refs/tags/v'))
     if SOURCE.exists():
         raise RuntimeError('Use a fresh checkout; existing prepared source is kept for inspection')
     run('git', 'worktree', 'add', '--detach', str(SOURCE), revision)
@@ -108,6 +116,11 @@ def prepare():
         shutil.copy2(workflow, SOURCE / '.github/workflows' / workflow.name)
     shutil.copytree(ROOT / '.personal', SOURCE / '.personal',
                     ignore=shutil.ignore_patterns('work', 'dist', '__pycache__'))
+    readme = SOURCE / 'README.md'
+    readme.write_text('> FLClash Personal: unofficial signed Android builds. '
+                      '[Downloads](https://github.com/Chen017/FlClash/releases/latest) · '
+                      '[Migration and maintenance](.personal/README.md). Upstream documentation follows.\n\n'
+                      + readme.read_text())
     version = f'{tag[1:]}+{number}'
     pubspec = SOURCE / 'pubspec.yaml'
     pubspec.write_text(re.sub(r'^version:.*$', f'version: {version}', pubspec.read_text(), flags=re.M))
@@ -150,13 +163,11 @@ def package():
                       core_patch_sha256=sha(ROOT / '.personal/core.patch'))
     write_json(DIST / 'manifest.json', provenance)
     with tarfile.open(DIST / 'complete-source.tar.gz', 'w:gz') as archive:
-        paths = run('git', 'ls-files', '--recurse-submodules', cwd=SOURCE, capture=True).splitlines()
-        paths += run('git', 'ls-files', '--others', '--exclude-standard', cwd=SOURCE, capture=True).splitlines()
-        paths += ['core/Clash.Meta/' + p for p in run('git', 'ls-files', '--others', '--exclude-standard', cwd=SOURCE / 'core/Clash.Meta', capture=True).splitlines()]
+        paths = run('git', 'ls-files', '-z', '--recurse-submodules', cwd=SOURCE, capture=True).split('\0')
+        paths += run('git', 'ls-files', '-z', '--others', '--exclude-standard', cwd=SOURCE, capture=True).split('\0')
+        paths += ['core/Clash.Meta/' + p for p in run('git', 'ls-files', '-z', '--others', '--exclude-standard', cwd=SOURCE / 'core/Clash.Meta', capture=True).split('\0') if p]
         for path in sorted(set(paths)):
             item = SOURCE / path
-            if not item.exists():
-                item = SOURCE / 'core/Clash.Meta' / path
             if item.is_file() and '.git' not in item.parts:
                 archive.add(item, arcname='FlClash-personal/' + item.relative_to(SOURCE).as_posix())
     (DIST / 'SHA256SUMS').write_text(''.join(f'{sha(p)}  {p.name}\n' for p in sorted(DIST.iterdir())), encoding='utf-8')

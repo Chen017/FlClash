@@ -1,3 +1,11 @@
+diff --git a/.gitattributes b/.gitattributes
+index c54bd99..9b4d346 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -1,2 +1,3 @@
+ # freezed emits lines of trailing spaces, and generated code is never edited by hand.
+ lib/**/generated/** -whitespace
++.personal/*.patch text eol=lf -whitespace
 diff --git a/.gitignore b/.gitignore
 index 9d33b61..f1a990f 100644
 --- a/.gitignore
@@ -93,6 +101,23 @@ index 0f00bf0..e9a470c 100644
      final hasUpdate =
          compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
      return hasUpdate ? release : null;
+diff --git a/lib/features/editor/clash_schema.dart b/lib/features/editor/clash_schema.dart
+index 042320d..bcc03f0 100644
+--- a/lib/features/editor/clash_schema.dart
++++ b/lib/features/editor/clash_schema.dart
+@@ -533,9 +533,12 @@ const _vlessTransport = {
+     'uplink-chunk-size': _str,
+     'sc-max-each-post-bytes': _str,
+     'sc-min-posts-interval-ms': _str,
++    'h2-max-receive-buffer-per-stream': _str,
+     'reuse-settings': _xhttpReuse,
+     'download-settings': YamlSchema.map({
+       ..._server,
++      'dialer-proxy': _outbound,
++      'h2-max-receive-buffer-per-stream': _str,
+       'path': _str,
+       'host': _str,
+       'headers': YamlSchema.dict(_str),
 diff --git a/test/common/personal_update_test.dart b/test/common/personal_update_test.dart
 new file mode 100644
 index 0000000..83593ee
