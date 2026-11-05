@@ -1,0 +1,120 @@
+diff --git a/.gitignore b/.gitignore
+index 9d33b61..f1a990f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,4 +1,6 @@
+ # Miscellaneous
++/.personal/work/
++/.personal/dist/
+ *.class
+ *.log
+ *.pyc
+diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts
+index 80cfed8..09356c1 100644
+--- a/android/app/build.gradle.kts
++++ b/android/app/build.gradle.kts
+@@ -33,7 +33,7 @@ android {
+     }
+ 
+     defaultConfig {
+-        applicationId = "com.follow.clash"
++        applicationId = "io.github.chen017.flclash"
+         minSdk = flutter.minSdkVersion
+         targetSdk = libs.versions.targetSdk.get().toInt()
+         versionCode = flutter.versionCode
+@@ -69,8 +69,9 @@ android {
+             if (hasReleaseSigning) {
+                 signingConfig = signingConfigs.getByName("release")
+             } else {
+-                signingConfig = signingConfigs.getByName("debug")
+-                applicationIdSuffix = ".dev"
++                if (gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }) {
++                    error("Personal releases require the permanent release signing key")
++                }
+             }
+ 
+             proguardFiles(
+diff --git a/android/common/src/main/res/values/strings.xml b/android/common/src/main/res/values/strings.xml
+index 1e795f3..890d69a 100644
+--- a/android/common/src/main/res/values/strings.xml
++++ b/android/common/src/main/res/values/strings.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+-    <string name="app_name">FlClash</string>
++    <string name="app_name">FLClash Personal</string>
+     <string name="service_channel_name">FlClash Service</string>
+ </resources>
+diff --git a/lib/common/constant.dart b/lib/common/constant.dart
+index 6dcbd6c..0b67c30 100644
+--- a/lib/common/constant.dart
++++ b/lib/common/constant.dart
+@@ -14,7 +14,7 @@ const appHelperService = 'FlClashHelperService';
+ const coreManifestName = 'manifest.json';
+ const browserUa =
+     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+-const packageName = 'com.follow.clash';
++const packageName = 'io.github.chen017.flclash';
+ final unixSocketPath = '/tmp/FlClashSocket_${Random().nextInt(10000)}.sock';
+ final windowsPipeName = '\\\\.\\pipe\\FlClashCore_${_randomPipeId()}';
+ const helperPort = 47890;
+@@ -129,7 +129,7 @@ const systemDnsRecordKey = 'system_dns_record';
+ const bootRecordKey = 'boot_record';
+ const appliedConfigMd5Key = 'applied_config_md5';
+ const defaultSystemDnsFallback = '223.5.5.5';
+-const repository = 'chen08209/FlClash';
++const repository = 'Chen017/FlClash';
+ const maxMobileWidth = 600;
+ const maxLaptopWidth = 840;
+ const defaultTestUrl = 'https://www.gstatic.com/generate_204';
+diff --git a/lib/common/package.dart b/lib/common/package.dart
+index 5ae7e94..4df1885 100644
+--- a/lib/common/package.dart
++++ b/lib/common/package.dart
+@@ -5,6 +5,8 @@ import 'package:package_info_plus/package_info_plus.dart';
+ import 'common.dart';
+ 
+ extension PackageInfoExtension on PackageInfo {
++  String get updateVersion => '$version+$buildNumber';
++
+   String get ua => [
+     '$appName/v$version',
+     'clash-verge',
+diff --git a/lib/common/request.dart b/lib/common/request.dart
+index 0f00bf0..e9a470c 100644
+--- a/lib/common/request.dart
++++ b/lib/common/request.dart
+@@ -108,7 +108,7 @@ class Request {
+   Future<Map<String, dynamic>?> checkForUpdate() async {
+     final release = await latestRelease();
+     final remoteVersion = release['tag_name'] as String;
+-    final version = globalState.packageInfo.version;
++    final version = globalState.packageInfo.updateVersion;
+     final hasUpdate =
+         compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
+     return hasUpdate ? release : null;
+diff --git a/test/common/personal_update_test.dart b/test/common/personal_update_test.dart
+new file mode 100644
+index 0000000..83593ee
+--- /dev/null
++++ b/test/common/personal_update_test.dart
+@@ -0,0 +1,19 @@
++import 'package:fl_clash/common/package.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:package_info_plus/package_info_plus.dart';
++
++void main() {
++  final installed = PackageInfo(
++    appName: 'FlClash',
++    packageName: 'io.github.chen017.flclash',
++    version: '0.9.3',
++    buildNumber: '7',
++  );
++
++  test('a core-only release updates once without an endless update prompt', () {
++    expect(compareVersions('0.9.3+8', installed.updateVersion), greaterThan(0));
++    expect(compareVersions('0.9.3+7', installed.updateVersion), 0);
++    expect(compareVersions('0.9.3+6', installed.updateVersion), lessThan(0));
++    expect(compareVersions('0.9.4+8', installed.updateVersion), greaterThan(0));
++  });
++}
