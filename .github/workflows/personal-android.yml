@@ -105,18 +105,20 @@ jobs:
         working-directory: .personal/work/source
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          test -n "$KEYSTORE" && test -n "$PASSWORD"
+          test -n "$KEYSTORE"
           umask 077
           printf '%s' "$KEYSTORE" | base64 --decode > android/app/keystore.jks
-          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=personal\n' "$PASSWORD" "$PASSWORD" >> android/local.properties
       - name: Build signed APKs with bundled patched Android core
         if: steps.prepare.outputs.needed == 'true'
         working-directory: .personal/work/source
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: flutter build apk --release --split-per-abi --dart-define=APP_ENV=stable
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          keytool -list -alias personal -keystore android/app/keystore.jks -storepass:env ANDROID_KEYSTORE_PASSWORD > /dev/null
+          flutter build apk --release --split-per-abi --dart-define=APP_ENV=stable
       - name: Verify signatures and package complete source
         if: steps.prepare.outputs.needed == 'true'
         env:

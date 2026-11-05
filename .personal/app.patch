@@ -18,10 +18,28 @@ index 9d33b61..f1a990f 100644
  *.log
  *.pyc
 diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts
-index 80cfed8..09356c1 100644
+index 80cfed8..0a7ded6 100644
 --- a/android/app/build.gradle.kts
 +++ b/android/app/build.gradle.kts
-@@ -33,7 +33,7 @@ android {
+@@ -14,12 +14,13 @@ val localProperties = Properties().apply {
+ }
+ 
+ val releaseStoreFile = file("keystore.jks")
+-val releaseStorePassword = localProperties.getProperty("storePassword")
+-val releaseKeyAlias = localProperties.getProperty("keyAlias")
+-val releaseKeyPassword = localProperties.getProperty("keyPassword")
++val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
++    ?: localProperties.getProperty("storePassword")
++val releaseKeyAlias = localProperties.getProperty("keyAlias") ?: "personal"
++val releaseKeyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
++    ?: localProperties.getProperty("keyPassword")
+ val hasReleaseSigning = releaseStoreFile.exists() &&
+     releaseStorePassword != null &&
+-    releaseKeyAlias != null &&
+     releaseKeyPassword != null
+ 
+ android {
+@@ -33,7 +34,7 @@ android {
      }
  
      defaultConfig {
@@ -30,7 +48,7 @@ index 80cfed8..09356c1 100644
          minSdk = flutter.minSdkVersion
          targetSdk = libs.versions.targetSdk.get().toInt()
          versionCode = flutter.versionCode
-@@ -69,8 +69,9 @@ android {
+@@ -69,8 +70,9 @@ android {
              if (hasReleaseSigning) {
                  signingConfig = signingConfigs.getByName("release")
              } else {
@@ -53,6 +71,17 @@ index 1e795f3..890d69a 100644
 +    <string name="app_name">FLClash Personal</string>
      <string name="service_channel_name">FlClash Service</string>
  </resources>
+diff --git a/android/gradle.properties b/android/gradle.properties
+index cac97e8..6012720 100644
+--- a/android/gradle.properties
++++ b/android/gradle.properties
+@@ -1,5 +1,6 @@
+ org.gradle.jvmargs=-Xmx4G
+ android.useAndroidX=true
++force-version-code-ignoring-abi=true
+ # This builtInKotlin flag was added automatically by Flutter migrator
+ android.builtInKotlin=false
+ # This newDsl flag was added automatically by Flutter migrator
 diff --git a/lib/common/constant.dart b/lib/common/constant.dart
 index 6dcbd6c..0b67c30 100644
 --- a/lib/common/constant.dart

@@ -14,12 +14,13 @@ val localProperties = Properties().apply {
 }
 
 val releaseStoreFile = file("keystore.jks")
-val releaseStorePassword = localProperties.getProperty("storePassword")
-val releaseKeyAlias = localProperties.getProperty("keyAlias")
-val releaseKeyPassword = localProperties.getProperty("keyPassword")
+val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: localProperties.getProperty("storePassword")
+val releaseKeyAlias = localProperties.getProperty("keyAlias") ?: "personal"
+val releaseKeyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: localProperties.getProperty("keyPassword")
 val hasReleaseSigning = releaseStoreFile.exists() &&
     releaseStorePassword != null &&
-    releaseKeyAlias != null &&
     releaseKeyPassword != null
 
 android {
