@@ -120,7 +120,7 @@ jobs:
         run: |
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           keytool -list -alias personal -keystore android/app/keystore.jks -storepass:env ANDROID_KEYSTORE_PASSWORD > /dev/null
-          flutter build apk --release --target-platform android-arm64 --dart-define=APP_ENV=stable
+          flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define=APP_ENV=stable
       - name: Verify signatures and package complete source
         if: steps.prepare.outputs.needed == 'true'
         env:
@@ -138,6 +138,8 @@ jobs:
         if: failure()
         with:
           name: android-failure-evidence
-          path: .personal/work/plan.json
+          path: |
+            .personal/work/plan.json
+            .personal/work/source/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           include-hidden-files: true
           retention-days: 7

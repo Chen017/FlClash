@@ -155,7 +155,7 @@ def package():
     if any(DIST.iterdir()):
         raise RuntimeError('Refusing to mix release outputs')
     certificate = os.environ['ANDROID_CERT_SHA256'].lower().replace(':', '')
-    path = SOURCE / 'build/app/outputs/flutter-apk/app-release.apk'
+    path = SOURCE / 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'
     verified = run('apksigner', 'verify', '--verbose', '--print-certs', str(path), capture=True)
     if f'certificate SHA-256 digest: {certificate}' not in verified:
         raise RuntimeError('APK is not signed with the permanent personal key')
@@ -163,9 +163,10 @@ def package():
     if f"name='{plan['package_id']}'" not in info or f"versionCode='{plan['build_number']}'" not in info:
         raise RuntimeError('Wrong APK package identity/version')
     with zipfile.ZipFile(path) as apk:
-        abis = {name.split('/')[1] for name in apk.namelist() if name.startswith('lib/')}
+        abis = {name.split('/')[1] for name in apk.namelist()
+                if name.startswith('lib/') and not name.endswith('/')}
         if abis != {'arm64-v8a'} or 'lib/arm64-v8a/libclash.so' not in apk.namelist():
-            raise RuntimeError('APK must contain only the arm64 Android core')
+            raise RuntimeError(f'Expected only arm64 with libclash.so; found ABIs: {sorted(abis)}')
     name = f'FlClash-{plan["version"]}-android-arm64-v8a.apk'
     shutil.copy2(path, DIST / name)
     artifact = dict(url=f'https://github.com/{REPO}/releases/download/{plan["tag"]}/{name}',
