@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 import urllib.request
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / '.personal/work'
@@ -17,6 +18,7 @@ SOURCE = STATE / 'source'
 DIST = ROOT / '.personal/dist'
 REPO = 'Chen017/FlClash'
 UPSTREAM = 'chen08209/FlClash'
+CORE_PATCH_BASE = '024245dc72bc92f48237f865119afe0cd53ac9e6'
 
 
 def run(*args, cwd=ROOT, capture=False, env=None):
@@ -56,14 +58,21 @@ def inputs_digest(paths):
     return digest.hexdigest()
 
 
-def checked_patch(path, cwd):
+def checked_patch(path, cwd, merge_base=None):
     for reverse in (False, True):
         command = ['git', 'apply', '--check'] + (['--reverse'] if reverse else []) + [str(path)]
         if subprocess.run(command, cwd=cwd, capture_output=True).returncode == 0:
             if not reverse:
                 run('git', 'apply', str(path), cwd=cwd)
             return
-    raise RuntimeError(f'{path.name} conflicts with upstream; last working release is preserved')
+    if merge_base:
+        repository, revision = merge_base
+        if subprocess.run(['git', 'cat-file', '-e', revision + '^{commit}'],
+                          cwd=cwd, capture_output=True).returncode:
+            run('git', 'fetch', '--depth', '1', '--no-tags', repository, revision, cwd=cwd)
+    merged = subprocess.run(['git', 'apply', '--3way', str(path)], cwd=cwd)
+    if merged.returncode:
+        raise RuntimeError(f'{path.name} conflicts with upstream; last working release is preserved')
 
 
 def next_build(previous, refs):
@@ -91,7 +100,6 @@ def prepare():
         asset = next(a for a in previous['assets'] if a['name'] == 'manifest.json')
         with urllib.request.urlopen(asset['browser_download_url']) as response:
             last = json.load(response)
-        write_json(STATE / 'previous.json', last)
     needed = not last or (last['upstream_commit'], last['inputs_sha256']) != (revision, digest)
     output(needed=needed)
     if not needed:
@@ -109,7 +117,8 @@ def prepare():
     pins = {key: re.search(rf"{name}:\s*'?([\w.]+)'?", workflow)[1]
             for key, name in [('flutter', 'FLUTTER_VERSION'), ('go', 'GO_VERSION'), ('ndk', 'NDK_VERSION')]}
     checked_patch(ROOT / '.personal/app.patch', SOURCE)
-    checked_patch(ROOT / '.personal/core.patch', core)
+    checked_patch(ROOT / '.personal/core.patch', core,
+                  ('https://github.com/chen08209/Clash.Meta.git', CORE_PATCH_BASE))
     for workflow in (SOURCE / '.github/workflows').iterdir():
         workflow.unlink()
     for workflow in ROOT.glob('.github/workflows/personal*.yml'):
@@ -131,7 +140,7 @@ def prepare():
                 core_repository='chen08209/Clash.Meta', core_revision=core_revision,
                 inputs_sha256=digest, build_number=number, version=version, tag=f'v{version}',
                 maintenance_commit=run('git', 'rev-parse', 'HEAD', capture=True).strip(),
-                package_id='io.github.chen017.flclash', capabilities=[
+                package_id='io.github.chen017.flclash', android_abi='arm64-v8a', capabilities=[
                     'xhttp-download-dialer', 'provider-scoped-dialer', 'vless-0rtt-ticket-recovery',
                     'xhttp-h2-window', 'unified-delay-warm-fallback'],
                 flutter_version=pins['flutter'], go_version=pins['go'], ndk_version=pins['ndk'])
@@ -145,21 +154,23 @@ def package():
     DIST.mkdir(exist_ok=True)
     if any(DIST.iterdir()):
         raise RuntimeError('Refusing to mix release outputs')
-    assets = {}
     certificate = os.environ['ANDROID_CERT_SHA256'].lower().replace(':', '')
-    for abi in ('arm64-v8a', 'armeabi-v7a', 'x86_64'):
-        path = SOURCE / f'build/app/outputs/flutter-apk/app-{abi}-release.apk'
-        verified = run('apksigner', 'verify', '--verbose', '--print-certs', str(path), capture=True)
-        if f'certificate SHA-256 digest: {certificate}' not in verified:
-            raise RuntimeError('APK is not signed with the permanent personal key')
-        info = run('aapt', 'dump', 'badging', str(path), capture=True)
-        if f"name='{plan['package_id']}'" not in info or f"versionCode='{plan['build_number']}'" not in info:
-            raise RuntimeError(f'{abi}: wrong package identity/version')
-        name = f'FlClash-{plan["version"]}-android-{abi}.apk'
-        shutil.copy2(path, DIST / name)
-        assets[abi] = dict(url=f'https://github.com/{REPO}/releases/download/{plan["tag"]}/{name}',
-                           sha256=sha(DIST / name), size=(DIST / name).stat().st_size)
-    provenance = dict(plan, assets=assets, signing_certificate_sha256=certificate,
+    path = SOURCE / 'build/app/outputs/flutter-apk/app-release.apk'
+    verified = run('apksigner', 'verify', '--verbose', '--print-certs', str(path), capture=True)
+    if f'certificate SHA-256 digest: {certificate}' not in verified:
+        raise RuntimeError('APK is not signed with the permanent personal key')
+    info = run('aapt', 'dump', 'badging', str(path), capture=True)
+    if f"name='{plan['package_id']}'" not in info or f"versionCode='{plan['build_number']}'" not in info:
+        raise RuntimeError('Wrong APK package identity/version')
+    with zipfile.ZipFile(path) as apk:
+        abis = {name.split('/')[1] for name in apk.namelist() if name.startswith('lib/')}
+        if abis != {'arm64-v8a'} or 'lib/arm64-v8a/libclash.so' not in apk.namelist():
+            raise RuntimeError('APK must contain only the arm64 Android core')
+    name = f'FlClash-{plan["version"]}-android-arm64-v8a.apk'
+    shutil.copy2(path, DIST / name)
+    artifact = dict(url=f'https://github.com/{REPO}/releases/download/{plan["tag"]}/{name}',
+                    sha256=sha(DIST / name), size=(DIST / name).stat().st_size)
+    provenance = dict(plan, apk=artifact, signing_certificate_sha256=certificate,
                       core_patch_sha256=sha(ROOT / '.personal/core.patch'))
     write_json(DIST / 'manifest.json', provenance)
     with tarfile.open(DIST / 'complete-source.tar.gz', 'w:gz') as archive:
@@ -179,11 +190,12 @@ def publish():
     run('git', '-c', 'user.name=Chen017', '-c', 'user.email=Chen017@users.noreply.github.com',
         'commit', '-m', f'build(android): signed personal {plan["version"]}', cwd=SOURCE)
     run('git', 'tag', plan['tag'], cwd=SOURCE)
-    run('git', 'push', 'origin', f'refs/tags/{plan["tag"]}', cwd=SOURCE)
+    run('git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
+        'push', 'origin', f'refs/tags/{plan["tag"]}', cwd=SOURCE)
     notes = STATE / 'notes.md'
     notes.write_text(f'''FLClash Personal · Android · unofficial maintained build
 
-Based on {UPSTREAM} {plan['upstream_tag']}. Install alongside the official app, export/import its local backup once, then use Check for updates here.
+Android arm64 only. Based on {UPSTREAM} {plan['upstream_tag']}. Install alongside the official app, export/import its local backup once, then use Check for updates here.
 Uses a permanent signing key; subsequent releases update this personal app in place.
 
 <!-- flclash:changelog:begin -->

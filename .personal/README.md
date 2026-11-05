@@ -2,7 +2,7 @@
 
 Android package `io.github.chen017.flclash`. This is an unofficial, separately signed app based on the latest stable FLClash release, retaining its own Android core integration.
 
-Install the arm64-v8a APK on most current phones. Keep the official app installed while migrating: export a **local backup** there and import it here, then confirm subscriptions, Age keys, selections and VPN access. Only one Android VPN can run at a time. Do not uninstall the official app until the personal app works.
+Only one Android arm64-v8a APK is built. Keep the official app installed while migrating: export a **local backup** there and import it here, then confirm subscriptions, Age keys, selections and VPN access. Only one Android VPN can run at a time. Do not uninstall the official app until the personal app works.
 
 Use the personal app's ordinary **Check for updates** afterwards. It reads this fork's releases and verifies SHA256SUMS before opening the Android package installer. The permanent signing key allows in-place updates; Android still requires your approval to install an APK. Core-only releases increment both the APK version code and the update comparison version.
 
@@ -12,4 +12,4 @@ To maintain: update `.personal/app.patch` or `.personal/core.patch`, run the tes
 
 Secrets: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD. Public variable: ANDROID_CERT_SHA256. Missing signing material fails the build. Never replace the key to fix a build: restore it from the private local key backup, or existing installations cannot update.
 
-Protocol unit tests cover both split directions, provider scope/cycles and 0-RTT ticket loss/recovery. Flutter tests cover backup and update behavior. Emulator smoke checks the real signed x86_64 APK loading and reinstallation with the same Android identity. VPN permission/revoke, real carrier IPv6 and handset battery restrictions require a physical-phone check; startup smoke does not substitute for those checks.
+Protocol tests and real Xray loopback regression cover both split directions, provider scope/cycles and 0-RTT ticket recovery. Flutter tests cover backup and update behavior. The release verifies the permanent signature, version code and arm64-only native libraries. VPN permission/revoke, real carrier IPv6 and handset battery restrictions still require a physical-phone check.
