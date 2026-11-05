@@ -83,6 +83,7 @@ def prepare():
         asset = next(a for a in previous['assets'] if a['name'] == 'manifest.json')
         with urllib.request.urlopen(asset['browser_download_url']) as response:
             last = json.load(response)
+        write_json(STATE / 'previous.json', last)
     needed = not last or (last['upstream_commit'], last['inputs_sha256']) != (revision, digest)
     output(needed=needed)
     if not needed:
@@ -119,7 +120,8 @@ def prepare():
                 maintenance_commit=run('git', 'rev-parse', 'HEAD', capture=True).strip(),
                 package_id='io.github.chen017.flclash', capabilities=[
                     'xhttp-download-dialer', 'provider-scoped-dialer', 'vless-0rtt-ticket-recovery',
-                    'xhttp-h2-window'], flutter_version=pins['flutter'], go_version=pins['go'], ndk_version=pins['ndk'])
+                    'xhttp-h2-window', 'unified-delay-warm-fallback'],
+                flutter_version=pins['flutter'], go_version=pins['go'], ndk_version=pins['ndk'])
     write_json(STATE / 'plan.json', plan)
     output(tag=plan['tag'], flutter=plan['flutter_version'], go=plan['go_version'], ndk=plan['ndk_version'])
     print(f'Prepared {plan["tag"]} from {tag} ({revision[:12]}); core {core_revision[:12]}.')

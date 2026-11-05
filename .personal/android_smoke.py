@@ -1,8 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
 import re
 import subprocess
 import time
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.personal/work'
@@ -33,9 +35,20 @@ def launch():
         raise RuntimeError('Personal app did not present its window')
 
 
-adb('install', '-r', str(APK))
+older = APK
+if (WORK / 'previous.json').exists():
+    previous = json.loads((WORK / 'previous.json').read_text())['assets']['x86_64']
+    older = WORK / 'previous.apk'
+    urllib.request.urlretrieve(previous['url'], older)
+    if hashlib.sha256(older.read_bytes()).hexdigest() != previous['sha256']:
+        raise RuntimeError('Previous-release APK checksum mismatch')
+adb('root')
+adb('wait-for-device')
+adb('install', '-r', str(older))
 launch()
 before = adb('shell', 'dumpsys', 'package', PACKAGE)
+sentinel = f'/data/user/0/{PACKAGE}/files/personal-upgrade-smoke'
+adb('shell', f'echo personal-data-survives > {sentinel}')
 adb('shell', 'am', 'force-stop', PACKAGE)
 adb('install', '-r', str(APK))
 after = adb('shell', 'dumpsys', 'package', PACKAGE)
@@ -43,5 +56,7 @@ for field in ('userId', 'firstInstallTime'):
     pattern = rf'{field}=([^\r\n ]+)'
     if re.search(pattern, before)[1] != re.search(pattern, after)[1]:
         raise RuntimeError(f'Overlay install replaced {field}')
+if adb('shell', 'cat', sentinel).strip() != 'personal-data-survives':
+    raise RuntimeError('Overlay install lost private application data')
 launch()
 print('Signed x86_64 APK starts and overlays without replacing Android app identity.')

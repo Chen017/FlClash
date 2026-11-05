@@ -54,7 +54,7 @@ jobs:
         working-directory: .personal/work/source/core/Clash.Meta
         env:
           CGO_ENABLED: 0
-        run: go test -tags with_gvisor ./component/proxydialer ./adapter/provider ./adapter/outbound ./transport/xhttp ./transport/vless/encryption ./config -count=1
+        run: go test -tags with_gvisor ./component/proxydialer ./adapter/provider ./adapter/outbound ./adapter ./hub/route ./transport/xhttp ./transport/vless/encryption ./config -count=1
       - name: Test Android wrapper contract
         if: steps.prepare.outputs.needed == 'true'
         working-directory: .personal/work/source/core
