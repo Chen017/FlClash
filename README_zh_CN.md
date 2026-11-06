@@ -1,3 +1,5 @@
+> 定制功能与升级约束见：[Chen017 个人 Fork 定制说明](https://github.com/Chen017/mihomo/blob/codex/window-builds/CUSTOMIZATIONS.md)（含 XHTTP H2 窗口、分路、零 RTT 和各仓库分工）。
+
 <div align="center">
 
 <img src="assets/images/icon.png" alt="FlClash" width="88">

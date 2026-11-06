@@ -1,3 +1,5 @@
+> 定制功能与升级约束见：[Chen017 个人 Fork 定制说明](https://github.com/Chen017/mihomo/blob/codex/window-builds/CUSTOMIZATIONS.md)（含 XHTTP H2 窗口、分路、零 RTT 和各仓库分工）。
+
 > **FLClash Personal (Chen017)** — Android builds with independent XHTTP upload/download routes and 0-RTT recovery. [Download personal APKs](https://github.com/Chen017/FlClash/releases/latest) · [Automatic builds](https://github.com/Chen017/FlClash/actions/workflows/personal-android.yml) · [Migration and maintenance](.personal/README.md). Separate package/signature from the official app. Original upstream documentation follows.
 
 <div align="center">

@@ -1,5 +1,7 @@
 # FLClash Personal
 
+完整中文需求与维护清单见 [个人 Fork 定制说明](https://github.com/Chen017/mihomo/blob/codex/window-builds/CUSTOMIZATIONS.md)。后续升级请保留列出的配置语义和签名身份；移除补丁前应先验证上游已有等价实现。
+
 Android package `io.github.chen017.flclash`. This is an unofficial, separately signed app based on the latest stable FLClash release, retaining its own Android core integration.
 
 Only one Android arm64-v8a APK is built. Keep the official app installed while migrating: export a **local backup** there and import it here, then confirm subscriptions, Age keys, selections and VPN access. Only one Android VPN can run at a time. Do not uninstall the official app until the personal app works.
