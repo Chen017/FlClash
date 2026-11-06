@@ -138,7 +138,7 @@ def prepare():
                 maintenance_commit=run('git', 'rev-parse', 'HEAD', capture=True).strip(),
                 package_id='io.github.chen017.flclash', android_abi='arm64-v8a', capabilities=[
                     'xhttp-download-dialer', 'provider-scoped-dialer', 'vless-0rtt-ticket-recovery',
-                    'xhttp-h2-window', 'unified-delay-warm-fallback'],
+                    'xhttp-h2-window', 'unified-delay-warm-fallback', 'android-vless-first-write-fragment'],
                 flutter_version=pins['flutter'], go_version=pins['go'], ndk_version=pins['ndk'])
     write_json(STATE / 'plan.json', plan)
     output(tag=plan['tag'], flutter=plan['flutter_version'], go=plan['go_version'], ndk=plan['ndk_version'])
