@@ -119,10 +119,6 @@ def prepare():
     checked_patch(ROOT / '.personal/app.patch', SOURCE)
     checked_patch(ROOT / '.personal/core.patch', core,
                   ('https://github.com/chen08209/Clash.Meta.git', CORE_PATCH_BASE))
-    for workflow in (SOURCE / '.github/workflows').iterdir():
-        workflow.unlink()
-    for workflow in ROOT.glob('.github/workflows/personal*.yml'):
-        shutil.copy2(workflow, SOURCE / '.github/workflows' / workflow.name)
     shutil.copytree(ROOT / '.personal', SOURCE / '.personal',
                     ignore=shutil.ignore_patterns('work', 'dist', '__pycache__'))
     readme = SOURCE / 'README.md'
@@ -211,7 +207,8 @@ Physical-phone VPN behavior still needs confirmation on your handset.
 ''', encoding='utf-8')
     run('gh', 'release', 'create', plan['tag'], '--repo', REPO, '--draft', '--title',
         f'FLClash Personal {plan["version"]}', '--notes-file', str(notes), *map(str, DIST.iterdir()))
-    data = api(f'repos/{REPO}/releases/tags/{plan["tag"]}')
+    data = json.loads(run('gh', 'release', 'view', plan['tag'], '--repo', REPO,
+                          '--json', 'assets', capture=True))
     if {a['name']: a['size'] for a in data['assets']} != {p.name: p.stat().st_size for p in DIST.iterdir()}:
         raise RuntimeError('Uploaded assets incomplete; release stays draft')
     run('gh', 'release', 'edit', plan['tag'], '--repo', REPO, '--draft=false', '--prerelease=false', '--latest')
