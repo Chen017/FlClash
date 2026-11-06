@@ -1,0 +1,145 @@
+name: Personal Android
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.personal/**', '.github/workflows/personal-android.yml']
+permissions:
+  contents: write
+concurrency:
+  group: personal-android-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.repository == 'Chen017/FlClash'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Prepare pinned upstream and maintained patches
+        id: prepare
+        run: |
+          python3 -m unittest discover -s .personal -p 'test_*.py'
+          python3 .personal/release.py prepare
+      - uses: actions/setup-go@v7.0.0
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          go-version: ${{ steps.prepare.outputs.go }}
+          cache-dependency-path: .personal/work/source/core/go.sum
+      - uses: subosito/flutter-action@v2
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          flutter-version: ${{ steps.prepare.outputs.flutter }}
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v6.2.0
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: nttld/setup-ndk@v1
+        if: steps.prepare.outputs.needed == 'true'
+        id: ndk
+        with:
+          ndk-version: ${{ steps.prepare.outputs.ndk }}
+          link-to-sdk: true
+      - uses: gradle/actions/setup-gradle@v6
+        if: steps.prepare.outputs.needed == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          workspaces: .personal/work/source/plugins/rust_api/rust
+          cache-directories: .personal/work/source/.dart_tool/hooks_runner
+          cache-on-failure: true
+      - name: Test provider routes, split transports and 0-RTT recovery
+        if: steps.prepare.outputs.needed == 'true'
+        working-directory: .personal/work/source/core/Clash.Meta
+        env:
+          CGO_ENABLED: 0
+        run: go test -tags with_gvisor ./component/proxydialer ./adapter/provider ./adapter/outbound ./adapter ./hub/route ./transport/xhttp ./transport/vless/encryption ./config -count=1
+      - name: Test Android wrapper contract
+        if: steps.prepare.outputs.needed == 'true'
+        working-directory: .personal/work/source/core
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go test -count=1 .
+          go vet . ./cmd/...
+          GOOS=android GOARCH=arm64 go vet -tags with_gvisor . ./mobile ./tun ./platform
+      - uses: actions/checkout@v7.0.1
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          repository: Chen017/Xray-Panel
+          ref: ed82609188100d480a3638dc35c21664b2ef52d3
+          path: .personal/work/e2e
+      - uses: actions/setup-node@v7.1.0
+        if: steps.prepare.outputs.needed == 'true'
+        with:
+          node-version: '24'
+      - name: Real Xray split-route and 0-RTT restart regression
+        if: steps.prepare.outputs.needed == 'true'
+        env:
+          CGO_ENABLED: 0
+        run: python3 .personal/run_e2e.py
+      - name: Resolve, analyze and test Flutter
+        if: steps.prepare.outputs.needed == 'true'
+        working-directory: .personal/work/source
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          cp pubspec.yaml /tmp/personal-pubspec.yaml
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pubspec.yaml')
+          path.write_text(path.read_text().replace('    setup:\n      build_assets: true', '    setup:\n      build_assets: false'))
+          PY
+          dart run tool/test.dart -- --reporter expanded
+          cp /tmp/personal-pubspec.yaml pubspec.yaml
+      - name: Restore permanent Android signing key
+        if: steps.prepare.outputs.needed == 'true'
+        working-directory: .personal/work/source
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE"
+          umask 077
+          printf '%s' "$KEYSTORE" | base64 --decode > android/app/keystore.jks
+      - name: Build signed arm64 APK with bundled patched core
+        if: steps.prepare.outputs.needed == 'true'
+        working-directory: .personal/work/source
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          keytool -list -alias personal -keystore android/app/keystore.jks -storepass:env ANDROID_KEYSTORE_PASSWORD > /dev/null
+          flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define=APP_ENV=stable
+      - name: Verify signatures and package complete source
+        if: steps.prepare.outputs.needed == 'true'
+        env:
+          ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          export PATH="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1):$PATH"
+          python3 .personal/release.py package
+      - name: Publish only the complete verified release
+        if: steps.prepare.outputs.needed == 'true'
+        run: python3 .personal/release.py publish
+      - name: Remove runner signing material
+        if: always()
+        run: rm -f .personal/work/source/android/app/keystore.jks .personal/work/source/android/local.properties
+      - uses: actions/upload-artifact@v7.0.2
+        if: failure()
+        with:
+          name: android-failure-evidence
+          path: |
+            .personal/work/plan.json
+            .personal/work/source/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          include-hidden-files: true
+          retention-days: 7
