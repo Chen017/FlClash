@@ -1,3 +1,5 @@
+> FLClash Personal: unofficial signed Android builds. [Downloads](https://github.com/Chen017/FlClash/releases/latest) · [Migration and maintenance](.personal/README.md). Upstream documentation follows.
+
 <div align="center">
 
 <img src="assets/images/icon.png" alt="FlClash" width="88">
