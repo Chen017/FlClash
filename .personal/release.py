@@ -18,6 +18,8 @@ SOURCE = STATE / 'source'
 DIST = ROOT / '.personal/dist'
 REPO = 'Chen017/FlClash'
 UPSTREAM = 'chen08209/FlClash'
+UPSTREAM_GIT = f'https://github.com/{UPSTREAM}.git'
+APP_PATCH_BASE = 'be84736605527034689c95bf27828ff27d912c5e'
 CORE_PATCH_BASE = '024245dc72bc92f48237f865119afe0cd53ac9e6'
 
 
@@ -89,16 +91,18 @@ def prepare():
     tag = release['tag_name']
     if release['draft'] or release['prerelease'] or not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
         raise RuntimeError('Expected an official stable release')
-    run('git', 'fetch', '--no-tags', f'https://github.com/{UPSTREAM}.git', f'refs/tags/{tag}')
-    revision = run('git', 'rev-parse', 'FETCH_HEAD^{commit}', capture=True).strip()
-    files = [*ROOT.glob('.personal/*.py'), *ROOT.glob('.personal/*.patch'),
+    revision = api(f'repos/{UPSTREAM}/commits/tags/{tag}')['sha']
+    scripts = [path for path in ROOT.glob('.personal/*.py') if not path.name.startswith('test_')]
+    files = [*scripts, *ROOT.glob('.personal/*.patch'),
              *ROOT.glob('.github/workflows/personal*.yml')]
     digest = inputs_digest(files)
     previous = api(f'repos/{REPO}/releases/latest', missing=True)
     last = None
     if previous:
-        asset = next(a for a in previous['assets'] if a['name'] == 'manifest.json')
-        with urllib.request.urlopen(asset['browser_download_url']) as response:
+        asset = next((a for a in previous['assets'] if a['name'] == 'manifest.json'), None)
+        if asset is None:
+            raise RuntimeError('Latest personal release is missing manifest.json')
+        with urllib.request.urlopen(asset['browser_download_url'], timeout=30) as response:
             last = json.load(response)
     needed = not last or (last['upstream_commit'], last['inputs_sha256']) != (revision, digest)
     output(needed=needed)
@@ -108,6 +112,9 @@ def prepare():
     number = next_build(last, api(f'repos/{REPO}/git/matching-refs/tags/v'))
     if SOURCE.exists():
         raise RuntimeError('Use a fresh checkout; existing prepared source is kept for inspection')
+    run('git', 'fetch', '--depth', '1', '--no-tags', UPSTREAM_GIT, f'refs/tags/{tag}')
+    if run('git', 'rev-parse', 'FETCH_HEAD^{commit}', capture=True).strip() != revision:
+        raise RuntimeError(f'Upstream tag {tag} changed during preparation; retry the workflow')
     run('git', 'worktree', 'add', '--detach', str(SOURCE), revision)
     run('git', '-c', 'url.https://github.com/.insteadOf=git@github.com:',
         'submodule', 'update', '--init', '--depth', '1', cwd=SOURCE)
@@ -116,7 +123,7 @@ def prepare():
     workflow = (SOURCE / '.github/workflows/build.yaml').read_text()
     pins = {key: re.search(rf"{name}:\s*'?([\w.]+)'?", workflow)[1]
             for key, name in [('flutter', 'FLUTTER_VERSION'), ('go', 'GO_VERSION'), ('ndk', 'NDK_VERSION')]}
-    checked_patch(ROOT / '.personal/app.patch', SOURCE)
+    checked_patch(ROOT / '.personal/app.patch', SOURCE, (UPSTREAM_GIT, APP_PATCH_BASE))
     checked_patch(ROOT / '.personal/core.patch', core,
                   ('https://github.com/chen08209/Clash.Meta.git', CORE_PATCH_BASE))
     shutil.copytree(ROOT / '.personal', SOURCE / '.personal',
@@ -150,13 +157,18 @@ def package():
     DIST.mkdir(exist_ok=True)
     if any(DIST.iterdir()):
         raise RuntimeError('Refusing to mix release outputs')
-    certificate = os.environ['ANDROID_CERT_SHA256'].lower().replace(':', '')
+    certificate = os.environ.get('ANDROID_CERT_SHA256', '').strip().lower().replace(':', '')
+    if not re.fullmatch(r'[0-9a-f]{64}', certificate):
+        raise RuntimeError('ANDROID_CERT_SHA256 must contain the full signing certificate SHA-256')
     path = SOURCE / 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'
     verified = run('apksigner', 'verify', '--verbose', '--print-certs', str(path), capture=True)
-    if f'certificate SHA-256 digest: {certificate}' not in verified:
-        raise RuntimeError('APK is not signed with the permanent personal key')
+    signers = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$', verified, re.M)
+    if [signer.lower() for signer in signers] != [certificate]:
+        raise RuntimeError('APK must have the permanent personal key as its sole signer')
     info = run('aapt', 'dump', 'badging', str(path), capture=True)
-    if f"name='{plan['package_id']}'" not in info or f"versionCode='{plan['build_number']}'" not in info:
+    identity = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", info, re.M)
+    expected = (plan['package_id'], str(plan['build_number']), plan['upstream_tag'][1:])
+    if not identity or identity.groups() != expected:
         raise RuntimeError('Wrong APK package identity/version')
     with zipfile.ZipFile(path) as apk:
         abis = {name.split('/')[1] for name in apk.namelist()
@@ -205,7 +217,7 @@ Upstream source: `{plan['upstream_commit']}`; core: `{plan['core_revision']}`.
 Exact complete app and patched submodule source, licenses and manifest are attached.
 Physical-phone VPN behavior still needs confirmation on your handset.
 ''', encoding='utf-8')
-    run('gh', 'release', 'create', plan['tag'], '--repo', REPO, '--draft', '--title',
+    run('gh', 'release', 'create', plan['tag'], '--repo', REPO, '--verify-tag', '--draft', '--title',
         f'FLClash Personal {plan["version"]}', '--notes-file', str(notes), *map(str, DIST.iterdir()))
     data = json.loads(run('gh', 'release', 'view', plan['tag'], '--repo', REPO,
                           '--json', 'assets', capture=True))

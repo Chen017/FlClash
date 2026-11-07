@@ -42,7 +42,7 @@ index d6942ba030f09fa3ed16dda20200cd3dc1acc89c..97a07db31be0001fff762792ef55e473
  			cDialer = dialer.NewDialer(opts...)
  		}
 diff --git a/adapter/outbound/vless.go b/adapter/outbound/vless.go
-index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e46ecafe22 100644
+index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..20c2b3f279f15a32411ba9080793f50655748055 100644
 --- a/adapter/outbound/vless.go
 +++ b/adapter/outbound/vless.go
 @@ -6,6 +6,7 @@ import (
@@ -134,7 +134,17 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  	// proxy part
  	Server            *string           `proxy:"server,omitempty"`
  	Port              *int              `proxy:"port,omitempty"`
-@@ -512,6 +518,14 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -412,6 +418,9 @@ func (v *Vless) SupportUOT() bool {
+ func (v *Vless) ProxyInfo() C.ProxyInfo {
+ 	info := v.Base.ProxyInfo()
+ 	info.DialerProxy = v.option.DialerProxy
++	if settings := v.option.XHTTPOpts.DownloadSettings; v.option.Network == "xhttp" && settings != nil && settings.DialerProxy != nil {
++		info.XHTTPDownloadDialerProxy = *settings.DialerProxy
++	}
+ 	return info
+ }
+ 
+@@ -512,6 +521,14 @@ func NewVless(option VlessOption) (*Vless, error) {
  	if err != nil {
  		return nil, err
  	}
@@ -149,7 +159,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  
  	v.echConfig, err = v.option.ECHOpts.Parse()
  	if err != nil {
-@@ -624,6 +638,10 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -624,6 +641,10 @@ func NewVless(option VlessOption) (*Vless, error) {
  			}
  		}
  
@@ -160,7 +170,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  		var hKeepAlivePeriod time.Duration
  
  		var reuseCfg *xhttp.ReuseConfig
-@@ -713,6 +731,7 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -713,6 +734,7 @@ func NewVless(option VlessOption) (*Vless, error) {
  				},
  				v.option.ALPN,
  				hKeepAlivePeriod,
@@ -168,7 +178,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  			)
  		}
  		var makeDownloadTransport func() http.RoundTripper
-@@ -793,6 +812,12 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -793,6 +815,12 @@ func NewVless(option VlessOption) (*Vless, error) {
  			}
  
  			downloadAddr := net.JoinHostPort(downloadServer, strconv.Itoa(downloadPort))
@@ -181,7 +191,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  
  			downloadHost := lo.FromPtrOr(ds.Host, v.option.XHTTPOpts.Host)
  			if downloadHost == "" {
-@@ -807,6 +832,10 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -807,6 +835,10 @@ func NewVless(option VlessOption) (*Vless, error) {
  			}
  
  			downloadHKeepAlivePeriod := hKeepAlivePeriod
@@ -192,7 +202,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  
  			downloadCfg := *cfg // make a copy
  			downloadCfg.Host = downloadHost
-@@ -829,7 +858,7 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -829,7 +861,7 @@ func NewVless(option VlessOption) (*Vless, error) {
  			makeDownloadTransport = func() http.RoundTripper {
  				return xhttp.NewTransport(
  					func(ctx context.Context) (net.Conn, error) {
@@ -201,7 +211,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  					},
  					func(ctx context.Context, conn net.Conn, isH2 bool) (net.Conn, error) {
  						if downloadTLS {
-@@ -896,7 +925,7 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -896,7 +928,7 @@ func NewVless(option VlessOption) (*Vless, error) {
  						if err != nil {
  							return nil, err
  						}
@@ -210,7 +220,7 @@ index 1e5b168ffe84af64c35de9e492de76a3d9ced1e2..44f70075fef1e0ef665b2888cc8aa5e4
  						if err != nil {
  							return nil, err
  						}
-@@ -904,6 +933,7 @@ func NewVless(option VlessOption) (*Vless, error) {
+@@ -904,6 +936,7 @@ func NewVless(option VlessOption) (*Vless, error) {
  					},
  					downloadALPN,
  					downloadHKeepAlivePeriod,
@@ -901,6 +911,143 @@ index bd4ef131734768a5e39a802297443e6607a50ea0..71db21ca9d5dee9fe795776d9d3730ae
  		if err != nil {
  			return nil, nil, fmt.Errorf("parse proxy provider %s error: %w", name, err)
  		}
+diff --git a/config/personal_xhttp_dialer_test.go b/config/personal_xhttp_dialer_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..d18074bb6b6e115614d14904014ff648e769e75e
+--- /dev/null
++++ b/config/personal_xhttp_dialer_test.go
+@@ -0,0 +1,45 @@
++package config
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestGlobalXHTTPDownloadDialerValidation(t *testing.T) {
++	split := func(download string) map[string]any {
++		return map[string]any{
++			"name": "split", "type": "vless", "server": "127.0.0.1", "port": 443,
++			"uuid": "0697e423-26d4-408f-9923-a3d65a3d73a9", "network": "xhttp", "dialer-proxy": "DIRECT",
++			"xhttp-opts": map[string]any{"mode": "stream-up", "download-settings": map[string]any{"dialer-proxy": download}},
++		}
++	}
++	for _, tc := range []struct {
++		name    string
++		proxies []map[string]any
++		wantErr string
++	}{
++		{"self", []map[string]any{split("split")}, "circular dialer-proxy dependency"},
++		{"indirect", []map[string]any{split("relay"), {
++			"name": "relay", "type": "socks5", "server": "127.0.0.1", "port": 1080, "dialer-proxy": "split",
++		}}, "circular dialer-proxy dependency"},
++		{"missing", []map[string]any{split("missing")}, "xhttp download-settings dialer-proxy [missing] not found"},
++		{"direct", []map[string]any{split("")}, ""},
++		{"valid", []map[string]any{split("relay"), {"name": "relay", "type": "direct"}}, ""},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			proxies, _, err := parseProxies(&RawConfig{Proxy: tc.proxies})
++			if tc.wantErr != "" {
++				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
++					t.Fatalf("error = %v, want %q", err, tc.wantErr)
++				}
++				return
++			}
++			if err != nil {
++				t.Fatal(err)
++			}
++			for _, mapping := range tc.proxies {
++				_ = proxies[mapping["name"].(string)].Close()
++			}
++		})
++	}
++}
+diff --git a/config/utils.go b/config/utils.go
+index ed4605146cc8d5b3d6dc96d5e9b786cd68389fa2..0ac84fa563a5948ecc84f12c57acc322425fe9b5 100644
+--- a/config/utils.go
++++ b/config/utils.go
+@@ -146,42 +146,57 @@ func proxyGroupsDagSort(groupsConfig []map[string]any) error {
+ 
+ // validateDialerProxies checks if all dialer-proxy references are valid
+ func validateDialerProxies(proxies map[string]C.Proxy) error {
+-	graph := make(map[string]string) // proxy name -> dialer-proxy name
+-
+-	// collect all proxies with dialer-proxy configured
++	graph := make(map[string][2]string)
+ 	for name, proxy := range proxies {
+-		dialerProxy := proxy.ProxyInfo().DialerProxy
+-		if dialerProxy != "" {
+-			// validate each dialer-proxy reference
+-			_, exist := proxies[dialerProxy]
+-			if !exist {
+-				return fmt.Errorf("proxy [%s] dialer-proxy [%s] not found", name, dialerProxy)
++		info := proxy.ProxyInfo()
++		if info.DialerProxy != "" {
++			if _, exists := proxies[info.DialerProxy]; !exists {
++				return fmt.Errorf("proxy [%s] dialer-proxy [%s] not found", name, info.DialerProxy)
++			}
++		}
++		if info.XHTTPDownloadDialerProxy != "" {
++			if _, exists := proxies[info.XHTTPDownloadDialerProxy]; !exists {
++				return fmt.Errorf("proxy [%s] xhttp download-settings dialer-proxy [%s] not found", name, info.XHTTPDownloadDialerProxy)
+ 			}
+-
+-			// build dependency graph
+-			graph[name] = dialerProxy
++		}
++		if info.DialerProxy != "" || info.XHTTPDownloadDialerProxy != "" {
++			graph[name] = [2]string{info.DialerProxy, info.XHTTPDownloadDialerProxy}
+ 		}
+ 	}
+ 
+-	// every proxy has at most one dialer-proxy, so walk each chain once: reaching a proxy
+-	// of the current walk means a cycle, reaching one an earlier walk finished does not
+ 	const onPath, acyclic = 1, 2
+ 	state := make(map[string]uint8, len(graph))
+-	var path []string
++	type frame struct {
++		name string
++		next int
++	}
++	var stack []frame
+ 	for name := range graph {
+-		path = path[:0]
+-		for current, ok := name, true; ok && state[current] != acyclic; current, ok = graph[current] {
+-			if state[current] == onPath {
++		if state[name] == acyclic {
++			continue
++		}
++		state[name] = onPath
++		stack = append(stack[:0], frame{name: name})
++		for len(stack) > 0 {
++			current := &stack[len(stack)-1]
++			refs := graph[current.name]
++			if current.next == len(refs) {
++				state[current.name] = acyclic
++				stack = stack[:len(stack)-1]
++				continue
++			}
++			ref := refs[current.next]
++			current.next++
++			if ref == "" || state[ref] == acyclic {
++				continue
++			}
++			if state[ref] == onPath {
+ 				return fmt.Errorf("proxy [%s] has circular dialer-proxy dependency", name)
+ 			}
+-			state[current] = onPath
+-			path = append(path, current)
+-		}
+-		for _, p := range path {
+-			state[p] = acyclic
++			state[ref] = onPath
++			stack = append(stack, frame{name: ref})
+ 		}
+ 	}
+-
+ 	return nil
+ }
+ 
 diff --git a/config/utils_test.go b/config/utils_test.go
 index aba0ddc673176650d384e428870dc846d2435a23..ed4e20c3d58714a1b8e06fc90a3117c9cd42fcde 100644
 --- a/config/utils_test.go
@@ -931,6 +1078,34 @@ index aba0ddc673176650d384e428870dc846d2435a23..ed4e20c3d58714a1b8e06fc90a3117c9
 +		}
 +	}
 +}
+diff --git a/constant/adapters.go b/constant/adapters.go
+index ffb1f2a7f72b6cd5876e948e61169af23fc7ea58..d39e6548366568861c1c73cfe37f47945ae3ae17 100644
+--- a/constant/adapters.go
++++ b/constant/adapters.go
+@@ -114,14 +114,15 @@ type Dialer interface {
+ }
+ 
+ type ProxyInfo struct {
+-	XUDP         bool
+-	TFO          bool
+-	MPTCP        bool
+-	SMUX         bool
+-	Interface    string
+-	RoutingMark  int
+-	ProviderName string
+-	DialerProxy  string
++	XUDP                     bool
++	TFO                      bool
++	MPTCP                    bool
++	SMUX                     bool
++	Interface                string
++	RoutingMark              int
++	ProviderName             string
++	DialerProxy              string
++	XHTTPDownloadDialerProxy string
+ }
+ 
+ type ProxyAdapter interface {
 diff --git a/docs/config.yaml b/docs/config.yaml
 index 9ee60878891349b9dba38aff5d68798db5272bf4..2e5f913cff5a380a4256703fb5ade6c780dbe702 100644
 --- a/docs/config.yaml

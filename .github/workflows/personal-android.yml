@@ -5,34 +5,77 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.personal/**', '.github/workflows/personal-android.yml']
+    paths:
+      - '.personal/*.py'
+      - '.personal/*.patch'
+      - '.github/workflows/personal-android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.personal/*.py'
+      - '.personal/*.patch'
+      - '.github/workflows/personal-android.yml'
+      - '.gitattributes'
+      - '.gitignore'
+      - 'android/app/build.gradle.kts'
+      - 'android/common/src/main/res/values/strings.xml'
+      - 'android/gradle.properties'
+      - 'lib/common/constant.dart'
+      - 'lib/common/package.dart'
+      - 'lib/common/request.dart'
+      - 'lib/features/editor/clash_schema.dart'
+      - 'test/common/personal_update_test.dart'
+      - 'test/core/protocol_contract_test.dart'
 permissions:
-  contents: write
-concurrency:
-  group: personal-android-release
-  cancel-in-progress: false
+  contents: read
 jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: personal-android-check-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release tooling and check the app patch mirror
+        run: |
+          python3 -m unittest discover -s .personal -p 'test_*.py' -v
+          git apply --reverse --check .personal/app.patch
   release:
-    if: github.repository == 'Chen017/FlClash'
+    if: github.repository == 'Chen017/FlClash' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    concurrency:
+      group: personal-android-release
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      GH_TOKEN: ${{ github.token }}
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
       - name: Prepare pinned upstream and maintained patches
         id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 -m unittest discover -s .personal -p 'test_*.py'
+          python3 -m unittest discover -s .personal -p 'test_*.py' -v
+          git apply --reverse --check .personal/app.patch
           python3 .personal/release.py prepare
       - uses: actions/setup-go@v7.0.0
         if: steps.prepare.outputs.needed == 'true'
         with:
           go-version: ${{ steps.prepare.outputs.go }}
-          cache-dependency-path: .personal/work/source/core/go.sum
+          cache-dependency-path: |
+            .personal/work/source/core/go.mod
+            .personal/work/source/core/go.sum
+            .personal/work/source/core/Clash.Meta/go.mod
+            .personal/work/source/core/Clash.Meta/go.sum
       - uses: subosito/flutter-action@v2
         if: steps.prepare.outputs.needed == 'true'
         with:
@@ -79,10 +122,13 @@ jobs:
           repository: Chen017/Xray-Panel
           ref: ed82609188100d480a3638dc35c21664b2ef52d3
           path: .personal/work/e2e
+          persist-credentials: false
       - uses: actions/setup-node@v7.1.0
         if: steps.prepare.outputs.needed == 'true'
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: .personal/work/e2e/package-lock.json
       - name: Real Xray split-route and 0-RTT restart regression
         if: steps.prepare.outputs.needed == 'true'
         env:
@@ -93,15 +139,19 @@ jobs:
         working-directory: .personal/work/source
         run: |
           flutter pub get
-          flutter analyze --no-fatal-infos
-          cp pubspec.yaml /tmp/personal-pubspec.yaml
+          flutter analyze --no-pub --no-fatal-infos
+          cp pubspec.yaml "$RUNNER_TEMP/personal-pubspec.yaml"
+          trap 'mv "$RUNNER_TEMP/personal-pubspec.yaml" pubspec.yaml' EXIT
           python3 - <<'PY'
           from pathlib import Path
           path = Path('pubspec.yaml')
-          path.write_text(path.read_text().replace('    setup:\n      build_assets: true', '    setup:\n      build_assets: false'))
+          pubspec = path.read_text()
+          hook = '    setup:\n      build_assets: true'
+          if pubspec.count(hook) != 1:
+              raise SystemExit('Expected one enabled desktop setup hook in pubspec.yaml')
+          path.write_text(pubspec.replace(hook, '    setup:\n      build_assets: false'))
           PY
           dart run tool/test.dart -- --reporter expanded
-          cp /tmp/personal-pubspec.yaml pubspec.yaml
       - name: Restore permanent Android signing key
         if: steps.prepare.outputs.needed == 'true'
         working-directory: .personal/work/source
@@ -121,19 +171,24 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD"
           keytool -list -alias personal -keystore android/app/keystore.jks -storepass:env ANDROID_KEYSTORE_PASSWORD > /dev/null
           flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define=APP_ENV=stable
+      - name: Remove runner signing material
+        if: always() && steps.prepare.outputs.needed == 'true'
+        run: rm -f .personal/work/source/android/app/keystore.jks .personal/work/source/android/local.properties
       - name: Verify signatures and package complete source
         if: steps.prepare.outputs.needed == 'true'
+        shell: bash
         env:
           ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
         run: |
-          export PATH="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1):$PATH"
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -1)
+          test -n "$build_tools"
+          export PATH="$ANDROID_HOME/build-tools/$build_tools:$PATH"
           python3 .personal/release.py package
       - name: Publish only the complete verified release
         if: steps.prepare.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 .personal/release.py publish
-      - name: Remove runner signing material
-        if: always()
-        run: rm -f .personal/work/source/android/app/keystore.jks .personal/work/source/android/local.properties
       - uses: actions/upload-artifact@v7.0.2
         if: failure()
         with:

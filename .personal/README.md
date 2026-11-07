@@ -8,13 +8,46 @@ Only one Android arm64-v8a APK is built. Keep the official app installed while m
 
 Use the personal app's ordinary **Check for updates** afterwards. It reads this fork's releases and verifies SHA256SUMS before opening the Android package installer. The permanent signing key allows in-place updates; Android still requires your approval to install an APK. Core-only releases increment both the APK version code and the update comparison version.
 
-Every six hours, Personal Android checks the latest **stable** upstream tag and maintained patches. Inputs are pinned and hashed. Unchanged inputs do not rebuild. Conflicts, failed tests or signing mismatches stop publication and preserve the last usable release. Actions failures appear in the repository Actions page. GitHub can suspend scheduled workflows in inactive forks; check the workflow if no runs appear for a long time. Manual Run workflow remains available.
+### Maintenance and local checks
 
-To maintain: update `.personal/app.patch` or `.personal/core.patch`, run the tests, and push main. Do not edit only the generated `.personal/work/source` tree. `release.py prepare` creates a fresh fixed upstream checkout, applies both checked patches, and records provenance. The published complete-source archive includes actual modified submodules and their licenses; GitHub's automatic source archive alone does not include submodules.
+- `app.patch` carries the personal Android identity, update comparison, editor hints and app regressions. Keep the files mirrored on `main` in sync with it. `core.patch` carries the personal transport changes and their Go tests. Both patches have explicit upstream bases in `release.py` for three-way application. Refresh the corresponding base when regenerating a patch against a new upstream revision.
+- `release.py` plans the release, prepares pinned sources, verifies the APK, packages complete source and publishes through a draft. `run_e2e.py` runs the pinned Xray-Panel fixture against the patched Core and a checksum-verified Xray binary. `.personal/work/` and `.personal/dist/` are generated paths. Put changes in the maintained patches or scripts so fresh checkouts receive them.
+- From the repository root, run the offline checks with Python 3.11+ and Git.
 
-Secrets: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD. Public variable: ANDROID_CERT_SHA256. Missing signing material fails the build. Never replace the key to fix a build: restore it from the private local key backup, or existing installations cannot update.
+  ```bash
+  python3 -m unittest discover -s .personal -p 'test_*.py' -v
+  git apply --reverse --check .personal/app.patch
+  ```
 
-Protocol tests and real Xray loopback regression cover both split directions, provider scope/cycles and 0-RTT ticket recovery. Flutter tests cover backup and update behavior. The release verifies the permanent signature, version code and arm64-only native libraries. VPN permission/revoke, real carrier IPv6 and handset battery restrictions still require a physical-phone check.
+- To reproduce source preparation in a fresh clone, use an authenticated GitHub CLI and run `python3 .personal/release.py prepare`. It reads public release metadata and, when a build is needed, creates `.personal/work/source` and writes the pinned app/Core revisions and tool versions to `plan.json`. Use those versions for Go, Flutter and NDK, plus JDK 17 and Node 24. The workflow contains the Core test package list and wrapper commands. The Xray loopback test needs Linux and the fixture checkout at the commit named in the workflow.
+- In the prepared source tree, run `flutter pub get`, `flutter analyze --no-fatal-infos`, and `flutter test test/common/personal_update_test.dart test/core/protocol_contract_test.dart` for the app boundary. The release job runs the broader suite in its temporary tree with the desktop setup hook disabled for testing, then restores the build configuration for Android packaging.
+
+### CI and signed releases
+
+`Personal Android` checks every six hours and accepts manual runs on `main`. Pushes changing the maintenance scripts, patches or workflow also run it. Pull requests touching the personal build inputs or mirrored app changes run the offline checks with read-only repository permissions. The release job compares the official stable commit and maintenance-input digest against the latest personal manifest before fetching upstream Git objects or installing build tools. Inputs that match the last published release finish at that step. Python unittest changes still run the offline checks and do not change the APK build fingerprint.
+
+Only `Chen017/FlClash` on `main` can publish. Build secrets are `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. The `ANDROID_CERT_SHA256` repository variable holds the full SHA-256 of the permanent signing certificate. Restore the original key from the private backup if signing fails, since a different key prevents existing installations from updating. The workflow removes the key and local Gradle properties before packaging.
+
+The package gate verifies the signer, package ID, Android version name and code, and the arm64 native library set. Published assets include `manifest.json`, `SHA256SUMS`, the APK and `complete-source.tar.gz` with the patched submodule source and its licenses. GitHub's generated tag archives omit submodule contents. The release stays a draft until every expected asset is present at its verified size.
+
+- On patch conflicts, inspect the named patch and upstream revision, regenerate against the new base if necessary, and rerun the focused tests. Retry preparation after an upstream tag moves during a run.
+- On build or packaging failure, inspect the Actions step and the short-lived failure artifact for the plan and available APK. A failed draft can leave a tag behind. The next successful attempt uses a higher build number, preserving Android upgrade order.
+- If scheduled runs stop appearing, check whether GitHub suspended the fork's schedule and start a manual run on `main`.
+
+### Regression map
+
+| Personal behavior | Verification |
+| --- | --- |
+| Same app version with a newer Core build offers an update exactly once | `test/common/personal_update_test.dart` checks the version and build comparison. |
+| The personal Android package has a separate signing identity and keeps the native plugin channel namespace | `test/core/protocol_contract_test.dart` checks the Dart/native namespace. The APK verifier checks package and signing identity. |
+| Provider-scoped dialers use current proxy objects, respect global names and reject cycles | `component/proxydialer`, `adapter/provider` and `config` tests in `core.patch`. |
+| Global XHTTP upload and download dependencies reject missing names and cycles before dialing | `config/personal_xhttp_dialer_test.go` in `core.patch` covers self and indirect cycles, missing names, explicit direct and valid routes. The connection-level path guard alone cannot see cycles across XHTTP's separate request contexts. |
+| Upload/download can take separate routes, with explicit direct download and independent HTTP/2 receive windows | `adapter/outbound` and `transport/xhttp` tests in `core.patch`, plus the Xray loopback fixture. |
+| A failed resumed handshake clears only the ticket it used, allowing a new handshake after a server restart | `transport/vless/encryption` tests in `core.patch`, plus the Xray loopback fixture. |
+| Delay tests retain a valid measurement when the warm retry fails | `adapter` and `hub/route` tests in `core.patch`. |
+| Android random-encrypted TCP splits the first write in both cold and resumed connections | `adapter/outbound` and `transport/vless/encryption` tests in `core.patch`. The Xray loopback fixture opts in to fragmentation on the build host. |
+
+VPN permission and revoke, carrier IPv6, and device battery restrictions still require physical Android verification.
 
 ### Android NAT encrypted entry compatibility
 

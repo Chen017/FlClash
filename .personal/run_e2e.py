@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import urllib.request
@@ -29,8 +30,11 @@ script = script.replace(anchor, anchor + '''
     body:JSON.stringify({'mixed-port':mixed,'lan-allowed-ips':['127.0.0.0/8','::1/128']})
   })).status,204);
 ''')
+guard = 'encryption:enc,tfo:false'
+if script.count(guard) != 1:
+    raise RuntimeError('Pinned encrypted-entry fixture changed')
+script = script.replace(guard, guard + ",'encryption-fragment':true")
 (FIXTURE / '.local').mkdir(exist_ok=True)
 (FIXTURE / '.local/mobile-e2e.mjs').write_text(script)
-import os
 env = dict(os.environ, MIHOMO_NAT_BIN=str(WORK / 'mihomo-probe'), XRAY_NATIVE_BIN=str(WORK / 'xray'))
 subprocess.run(['node', '.local/mobile-e2e.mjs'], cwd=FIXTURE, env=env, check=True)
