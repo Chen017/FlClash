@@ -197,6 +197,17 @@ class _EmptyConfigCoreHandler extends _RecordingCoreHandler {
 }
 
 void main() {
+  test('Android channel namespace matches the native plugins', () async {
+    final components = await File(
+      'android/common/src/main/java/com/follow/clash/common/Components.kt',
+    ).readAsString();
+    final nativeNamespace = RegExp(
+      r'const val PACKAGE_NAME = "([^"]+)"',
+    ).firstMatch(components)!.group(1);
+
+    expect(packageName, nativeNamespace);
+  });
+
   test('method call keeps structured arguments', () async {
     final fixture =
         json.decode(

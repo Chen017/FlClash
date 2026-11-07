@@ -1,4 +1,6 @@
 # Miscellaneous
+/.personal/work/
+/.personal/dist/
 *.class
 *.log
 *.pyc
