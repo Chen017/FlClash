@@ -96,7 +96,7 @@ class PrepareTest(unittest.TestCase):
 class PackageTest(unittest.TestCase):
     certificate = 'a' * 64
     identity = "package: name='io.github.chen017.flclash' versionCode='7' versionName='0.9.3'"
-    signer = f'Signer #1 certificate SHA-256 digest: {certificate}\n'
+    signer = f'Number of signers: 1\nSigner #1 certificate SHA-256 digest: {certificate}\n'
 
     def setUp(self):
         temporary = TemporaryDirectory(prefix='personal-package-')
@@ -145,10 +145,19 @@ class PackageTest(unittest.TestCase):
             release.package()
         self.run.assert_not_called()
 
+    def test_build_tools_37_signer_format_is_accepted(self):
+        signer = self.signer.replace('Signer #1', 'V2 Signer:')
+        self.run.side_effect = [signer, self.identity, '', '', '']
+        release.package()
+
     def test_a_matching_certificate_cannot_hide_an_extra_signer(self):
-        self.run.return_value = self.signer + 'Signer #2 certificate SHA-256 digest: ' + 'b' * 64
-        with self.assertRaisesRegex(RuntimeError, 'sole signer'):
-            release.package()
+        for output in (
+            self.signer + 'Signer #2 certificate SHA-256 digest: ' + 'b' * 64,
+            self.signer.replace('Number of signers: 1', 'Number of signers: 2'),
+        ):
+            with self.subTest(output=output), self.assertRaisesRegex(RuntimeError, 'sole signer'):
+                self.run.return_value = output
+                release.package()
 
     def test_package_line_must_match_identity_and_both_versions(self):
         for info in (

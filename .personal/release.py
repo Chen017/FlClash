@@ -162,8 +162,12 @@ def package():
         raise RuntimeError('ANDROID_CERT_SHA256 must contain the full signing certificate SHA-256')
     path = SOURCE / 'build/app/outputs/flutter-apk/app-arm64-v8a-release.apk'
     verified = run('apksigner', 'verify', '--verbose', '--print-certs', str(path), capture=True)
-    signers = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$', verified, re.M)
-    if [signer.lower() for signer in signers] != [certificate]:
+    signers = re.findall(
+        r'^(?:Signer #\d+|V[1-4](?:\.\d+)? Signer(?: #\d+)?):? '
+        r'certificate SHA-256 digest: ([0-9a-fA-F]{64})$', verified, re.M,
+    )
+    signer_counts = re.findall(r'^Number of signers: (\d+)$', verified, re.M)
+    if signer_counts != ['1'] or [signer.lower() for signer in signers] != [certificate]:
         raise RuntimeError('APK must have the permanent personal key as its sole signer')
     info = run('aapt', 'dump', 'badging', str(path), capture=True)
     identity = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", info, re.M)
