@@ -533,9 +533,12 @@ const _vlessTransport = {
     'uplink-chunk-size': _str,
     'sc-max-each-post-bytes': _str,
     'sc-min-posts-interval-ms': _str,
+    'h2-max-receive-buffer-per-stream': _str,
     'reuse-settings': _xhttpReuse,
     'download-settings': YamlSchema.map({
       ..._server,
+      'dialer-proxy': _outbound,
+      'h2-max-receive-buffer-per-stream': _str,
       'path': _str,
       'host': _str,
       'headers': YamlSchema.dict(_str),

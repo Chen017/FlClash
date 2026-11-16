@@ -14,12 +14,13 @@ val localProperties = Properties().apply {
 }
 
 val releaseStoreFile = file("keystore.jks")
-val releaseStorePassword = localProperties.getProperty("storePassword")
-val releaseKeyAlias = localProperties.getProperty("keyAlias")
-val releaseKeyPassword = localProperties.getProperty("keyPassword")
+val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: localProperties.getProperty("storePassword")
+val releaseKeyAlias = localProperties.getProperty("keyAlias") ?: "personal"
+val releaseKeyPassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: localProperties.getProperty("keyPassword")
 val hasReleaseSigning = releaseStoreFile.exists() &&
     releaseStorePassword != null &&
-    releaseKeyAlias != null &&
     releaseKeyPassword != null
 
 android {
@@ -33,7 +34,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.follow.clash"
+        applicationId = "io.github.chen017.flclash"
         minSdk = flutter.minSdkVersion
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = flutter.versionCode
@@ -69,8 +70,9 @@ android {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
-                signingConfig = signingConfigs.getByName("debug")
-                applicationIdSuffix = ".dev"
+                if (gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }) {
+                    error("Personal releases require the permanent release signing key")
+                }
             }
 
             proguardFiles(
