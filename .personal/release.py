@@ -74,6 +74,7 @@ def checked_patch(path, cwd, merge_base=None):
             run('git', 'fetch', '--depth', '1', '--no-tags', repository, revision, cwd=cwd)
     merged = subprocess.run(['git', 'apply', '--3way', str(path)], cwd=cwd)
     if merged.returncode:
+        output(patch_conflict=True)
         raise RuntimeError(f'{path.name} conflicts with upstream; last working release is preserved')
 
 
