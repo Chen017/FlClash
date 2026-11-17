@@ -105,10 +105,10 @@ def prepare():
             raise RuntimeError('Latest personal release is missing manifest.json')
         with urllib.request.urlopen(asset['browser_download_url'], timeout=30) as response:
             last = json.load(response)
-    needed = not last or (last['upstream_commit'], last['inputs_sha256']) != (revision, digest)
+    needed = not isinstance(last, dict) or (last.get('upstream_tag'), last.get('upstream_commit')) != (tag, revision)
     output(needed=needed)
     if not needed:
-        print('Stable app and maintained patches unchanged; no rebuild required.')
+        print('Stable upstream app unchanged; core-only and maintenance-only updates are deferred.')
         return
     number = next_build(last, api(f'repos/{REPO}/git/matching-refs/tags/v'))
     if SOURCE.exists():
@@ -215,7 +215,7 @@ Uses a permanent signing key; subsequent releases update this personal app in pl
 <!-- flclash:changelog:begin -->
 - Independent XHTTP upload/download routes, including NAT IPv4 upload and direct IPv6 download.
 - Scoped Proxy Provider chaining, configurable H2 windows and 0-RTT ticket recovery.
-- Automatic stable upstream checks every six hours; SHA256 verified application updates, including core-only builds.
+- Automatic stable upstream checks every six hours; SHA256 verified application builds only for new stable upstream app releases.
 <!-- flclash:changelog:end -->
 
 Upstream source: `{plan['upstream_commit']}`; core: `{plan['core_revision']}`.

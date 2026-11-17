@@ -73,13 +73,25 @@ class PrepareTest(unittest.TestCase):
 
     def test_unchanged_release_does_not_fetch_or_prepare_worktree(self):
         previous = {'assets': [{'name': 'manifest.json', 'browser_download_url': 'https://example.invalid'}]}
-        manifest = {'upstream_commit': self.revision, 'inputs_sha256': self.digest}
+        manifest = {'upstream_tag': 'v0.9.3', 'upstream_commit': self.revision, 'inputs_sha256': 'old-maintenance-hash'}
         with mock.patch.object(release, 'api', side_effect=[self.release, {'sha': self.revision}, previous]), \
              mock.patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps(manifest).encode())):
             release.prepare()
 
         self.output.assert_called_once_with(needed=False)
         self.run.assert_not_called()
+
+    def test_new_app_release_builds_even_when_maintenance_is_unchanged(self):
+        previous = {'assets': [{'name': 'manifest.json', 'browser_download_url': 'https://example.invalid'}],
+                    'build_number': 7}
+        manifest = {'upstream_tag': 'v0.9.2', 'upstream_commit': 'b' * 40,
+                    'inputs_sha256': self.digest}
+        self.run.side_effect = [None, 'b' * 40]
+        with mock.patch.object(release, 'api', side_effect=[self.release, {'sha': self.revision}, previous, []]), \
+             mock.patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps(manifest).encode())), \
+             self.assertRaisesRegex(RuntimeError, 'changed during preparation'):
+            release.prepare()
+        self.output.assert_called_once_with(needed=True)
 
     def test_moved_tag_stops_before_creating_worktree(self):
         self.run.side_effect = [None, 'b' * 40]
