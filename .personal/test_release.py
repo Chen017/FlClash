@@ -85,7 +85,7 @@ class PrepareTest(unittest.TestCase):
         previous = {'assets': [{'name': 'manifest.json', 'browser_download_url': 'https://example.invalid'}],
                     'build_number': 7}
         manifest = {'upstream_tag': 'v0.9.2', 'upstream_commit': 'b' * 40,
-                    'inputs_sha256': self.digest}
+                    'inputs_sha256': self.digest, 'build_number': 7}
         self.run.side_effect = [None, 'b' * 40]
         with mock.patch.object(release, 'api', side_effect=[self.release, {'sha': self.revision}, previous, []]), \
              mock.patch.object(release.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps(manifest).encode())), \
