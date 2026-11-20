@@ -28,6 +28,8 @@ Use the personal app's ordinary **Check for updates** afterwards. It reads this 
 
 Only `Chen017/FlClash` on `main` can publish. Build secrets are `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. The `ANDROID_CERT_SHA256` repository variable holds the full SHA-256 of the permanent signing certificate. Restore the original key from the private backup if signing fails, since a different key prevents existing installations from updating. The workflow removes the key and local Gradle properties before packaging.
 
+The release tag is a child of the pinned maintenance commit and keeps the maintenance branch's exact `.github/workflows` tree, so GitHub Actions' scoped `GITHUB_TOKEN` does not need an additional workflow-writing credential. The attached `complete-source.tar.gz`, produced **before** the tag commit, is the authoritative exact built source (including upstream workflows, patched Core, and licenses); GitHub's auto-generated tag snapshot uses the maintained workflow directory instead. Neither the Android APK contents nor signing inputs are altered by this publication-only adjustment.
+
 The package gate verifies the signer, package ID, Android version name and code, and the arm64 native library set. Published assets include `manifest.json`, `SHA256SUMS`, the APK and `complete-source.tar.gz` with the patched submodule source and its licenses. GitHub's generated tag archives omit submodule contents. The release stays a draft until every expected asset is present at its verified size.
 
 - On patch conflicts, inspect the named patch and upstream revision, regenerate against the new base if necessary, and rerun the focused tests. Retry preparation after an upstream tag moves during a run.
