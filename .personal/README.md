@@ -32,7 +32,7 @@ The package gate verifies the signer, package ID, Android version name and code,
 
 - On patch conflicts, inspect the named patch and upstream revision, regenerate against the new base if necessary, and rerun the focused tests. Retry preparation after an upstream tag moves during a run.
 - On build or packaging failure, inspect the Actions step and the short-lived failure artifact for the plan and available APK. A failed draft can leave a tag behind. The next successful attempt uses a higher build number, preserving Android upgrade order.
-- If scheduled runs stop appearing, check whether GitHub suspended the fork's schedule and start a manual run on `main`.
+- If **no runs are created** for either scheduled events or matching pushes, first check **Actions → Personal Android** and the repository's Actions settings for disabled workflows or restrictions. A missing run is a trigger/registration issue, not an APK build failure. The workflow is registered under `.github/workflows/personal-android-release.yml`; its six-hour UTC schedule runs at minute 41 to avoid peak-hour dispatch load. Changing the cron on `main` refreshes its scheduled actor. Use **Run workflow** on `main` to diagnose manual triggering; if all triggers remain absent, investigate GitHub's Actions service or repository permissions instead of weakening release checks.
 
 ### Regression map
 
