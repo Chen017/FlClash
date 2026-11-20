@@ -5,7 +5,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'common.dart';
 
 extension PackageInfoExtension on PackageInfo {
-  String get updateVersion => '$version+$buildNumber';
+  String get updateVersion =>
+      version.contains('-') ? version : '$version+$buildNumber';
 
   String get ua => [
     '$appName/v$version',
@@ -15,30 +16,43 @@ extension PackageInfoExtension on PackageInfo {
 }
 
 int compareVersions(String version1, String version2) {
-  final List<String> v1 = version1.split('+')[0].split('.');
-  final List<String> v2 = version2.split('+')[0].split('.');
-  final int major1 = int.parse(v1[0]);
-  final int major2 = int.parse(v2[0]);
-  if (major1 != major2) {
-    return major1.compareTo(major2);
+  final parsed1 = _parseVersion(version1);
+  final parsed2 = _parseVersion(version2);
+  for (var i = 0; i < 3; i++) {
+    if (parsed1.core[i] != parsed2.core[i]) {
+      return parsed1.core[i].compareTo(parsed2.core[i]);
+    }
   }
-  final int minor1 = v1.length > 1 ? int.parse(v1[1]) : 0;
-  final int minor2 = v2.length > 1 ? int.parse(v2[1]) : 0;
-  if (minor1 != minor2) {
-    return minor1.compareTo(minor2);
+  if (parsed1.personalRevision != null || parsed2.personalRevision != null) {
+    final rev1 = parsed1.personalRevision ?? 0;
+    final rev2 = parsed2.personalRevision ?? 0;
+    return rev1.compareTo(rev2);
   }
-  final int patch1 = v1.length > 2 ? int.parse(v1[2]) : 0;
-  final int patch2 = v2.length > 2 ? int.parse(v2[2]) : 0;
-  if (patch1 != patch2) {
-    return patch1.compareTo(patch2);
+  return parsed1.build.compareTo(parsed2.build);
+}
+
+({List<int> core, int? personalRevision, int build}) _parseVersion(
+  String raw,
+) {
+  final normalized = raw.startsWith('v') ? raw.substring(1) : raw;
+  final plusParts = normalized.split('+');
+  final build = plusParts.length > 1 ? int.tryParse(plusParts[1]) ?? 0 : 0;
+  final dashParts = plusParts[0].split('-');
+  final coreParts = dashParts[0].split('.');
+  final core = [
+    int.parse(coreParts[0]),
+    coreParts.length > 1 ? int.parse(coreParts[1]) : 0,
+    coreParts.length > 2 ? int.parse(coreParts[2]) : 0,
+  ];
+  int? personalRevision;
+  if (dashParts.length > 1) {
+    final suffix = dashParts.sublist(1).join('-');
+    final match = RegExp(r'^personal(?:\.(\d+))?$').firstMatch(suffix);
+    if (match != null) {
+      personalRevision = match.group(1) != null ? int.parse(match.group(1)!) : 1;
+    }
   }
-  final int build1 = version1.contains('+')
-      ? int.parse(version1.split('+')[1])
-      : 0;
-  final int build2 = version2.contains('+')
-      ? int.parse(version2.split('+')[1])
-      : 0;
-  return build1.compareTo(build2);
+  return (core: core, personalRevision: personalRevision, build: build);
 }
 
 const releaseNotesBeginMarker = '<!-- flclash:changelog:begin -->';

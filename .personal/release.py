@@ -78,12 +78,97 @@ def checked_patch(path, cwd, merge_base=None):
         raise RuntimeError(f'{path.name} conflicts with upstream; last working release is preserved')
 
 
-def next_build(previous, refs):
-    numbers = [previous['build_number'] if previous else 0]
+CHANGELOG_JSON_BEGIN = '<!-- flclash:changelog:json'
+CHANGELOG_JSON_END = '-->'
+CHANGELOG_BEGIN = '<!-- flclash:changelog:begin -->'
+CHANGELOG_END = '<!-- flclash:changelog:end -->'
+PERSONAL_ITEMS = [
+    'Independent XHTTP upload/download routes, including NAT IPv4 upload and direct IPv6 download.',
+    'Scoped Proxy Provider chaining, configurable H2 windows, 0-RTT ticket recovery and Android first-write fragment.',
+    'Permanent signing key for in-place Android arm64 updates with SHA256 verification.',
+]
+
+
+def next_build_code(previous, refs):
+    numbers = [previous['build_number'] if previous and previous.get('build_number') else 0]
     for ref in refs:
         if match := re.fullmatch(r'refs/tags/v\d+\.\d+\.\d+\+(\d+)', ref['ref']):
             numbers.append(int(match[1]))
     return max(numbers) + 1
+
+
+def next_version_name(upstream_tag, refs):
+    base = f'{upstream_tag.removeprefix("v")}-personal'
+    numbers = []
+    for ref in refs:
+        name = ref['ref']
+        if name == f'refs/tags/v{base}':
+            numbers.append(1)
+        elif match := re.fullmatch(rf'refs/tags/v{re.escape(base)}\.(\d+)', name):
+            numbers.append(int(match[1]))
+    if not numbers:
+        return base
+    return f'{base}.{max(numbers) + 1}'
+
+
+def format_release_notes(plan):
+    upstream_notes = (plan.get('upstream_notes') or '').strip()
+    json_marker = ''
+    visible_upstream = upstream_notes
+
+    begin = upstream_notes.find(CHANGELOG_JSON_BEGIN)
+    if begin >= 0:
+        start = begin + len(CHANGELOG_JSON_BEGIN)
+        end = upstream_notes.find(CHANGELOG_JSON_END, start)
+        if end >= 0:
+            raw_json = upstream_notes[start:end].strip()
+            try:
+                payload = json.loads(raw_json)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and isinstance(payload.get('versions'), list) and payload['versions']:
+                first = payload['versions'][0]
+                if isinstance(first, dict):
+                    first['version'] = plan['version']
+                    first['tag'] = plan['tag']
+                    groups = first.setdefault('groups', [])
+                    if isinstance(groups, list):
+                        groups.append({
+                            'type': 'feat',
+                            'entries': [
+                                {'id': f'personal-{i}', 'scope': 'personal', 'text': f'[Personal] {item}'}
+                                for i, item in enumerate(PERSONAL_ITEMS, 1)
+                            ],
+                        })
+                    json_marker = (
+                        f'{CHANGELOG_JSON_BEGIN}\n'
+                        f'{json.dumps(payload, ensure_ascii=False, indent=2)}\n'
+                        f'{CHANGELOG_JSON_END}'
+                    )
+                    visible_upstream = (
+                        upstream_notes[:begin].rstrip() + '\n\n' +
+                        upstream_notes[end + len(CHANGELOG_JSON_END):].lstrip()
+                    ).strip()
+
+    personal_bullets = '\n'.join(f'- {item}' for item in PERSONAL_ITEMS)
+    custom_body = (
+        '## Personal Customizations\n\n'
+        f'{personal_bullets}\n\n'
+        f'Android arm64 only. Based on `{UPSTREAM}` `{plan["upstream_tag"]}`. '
+        'Install alongside the official app, export/import its local backup once, then use Check for updates here.\n'
+        'Uses a permanent signing key; subsequent releases update this personal app in place.\n\n'
+        f'Upstream source: `{plan["upstream_commit"]}`; core: `{plan["core_revision"]}`.\n'
+        'Exact complete app and patched submodule source, licenses and manifest are attached.'
+    )
+
+    if json_marker:
+        body = f'{visible_upstream}\n\n---\n\n{custom_body}' if visible_upstream else custom_body
+        return f'{body}\n\n{json_marker}\n'
+
+    cleaned_upstream = visible_upstream.replace(CHANGELOG_BEGIN, '').replace(CHANGELOG_END, '').strip()
+    if cleaned_upstream:
+        return f'{CHANGELOG_BEGIN}\n{cleaned_upstream}\n\n---\n\n{custom_body}\n{CHANGELOG_END}\n'
+    return f'{CHANGELOG_BEGIN}\n{custom_body}\n{CHANGELOG_END}\n'
 
 
 def prepare():
@@ -94,9 +179,10 @@ def prepare():
         raise RuntimeError('Expected an official stable release')
     revision = api(f'repos/{UPSTREAM}/commits/tags/{tag}')['sha']
     scripts = [path for path in ROOT.glob('.personal/*.py') if not path.name.startswith('test_')]
-    files = [*scripts, *ROOT.glob('.personal/*.patch'),
-             *ROOT.glob('.github/workflows/personal*.yml')]
+    patches = list(ROOT.glob('.personal/*.patch'))
+    files = [*scripts, *patches, *ROOT.glob('.github/workflows/personal*.yml')]
     digest = inputs_digest(files)
+    patch_digest = inputs_digest(patches)
     previous = api(f'repos/{REPO}/releases/latest', missing=True)
     last = None
     if previous:
@@ -110,7 +196,10 @@ def prepare():
     if not needed:
         print('Stable upstream app unchanged; core-only and maintenance-only updates are deferred.')
         return
-    number = next_build(last, api(f'repos/{REPO}/git/matching-refs/tags/v'))
+    refs = api(f'repos/{REPO}/git/matching-refs/tags/v', missing=True) or []
+    number = next_build_code(last, refs)
+    version_name = next_version_name(tag, refs)
+    pubspec_version = f'{version_name}+{number}'
     if SOURCE.exists():
         raise RuntimeError('Use a fresh checkout; existing prepared source is kept for inspection')
     run('git', 'fetch', '--depth', '1', '--no-tags', UPSTREAM_GIT, f'refs/tags/{tag}')
@@ -134,15 +223,17 @@ def prepare():
                       '[Downloads](https://github.com/Chen017/FlClash/releases/latest) · '
                       '[Migration and maintenance](.personal/README.md). Upstream documentation follows.\n\n'
                       + readme.read_text())
-    version = f'{tag[1:]}+{number}'
     pubspec = SOURCE / 'pubspec.yaml'
-    pubspec.write_text(re.sub(r'^version:.*$', f'version: {version}', pubspec.read_text(), flags=re.M))
+    pubspec.write_text(re.sub(r'^version:.*$', f'version: {pubspec_version}', pubspec.read_text(), flags=re.M))
     config = SOURCE / 'build_config.yaml'
-    config.write_text(re.sub(r'^(core_version:\s*)(\S+)$', rf'\1\2-personal.{digest[:8]}',
+    config.write_text(re.sub(r'^(core_version:\s*)(\S+)$', rf'\1\2-personal.{patch_digest[:8]}',
                              config.read_text(), flags=re.M))
     plan = dict(upstream_repository=UPSTREAM, upstream_tag=tag, upstream_commit=revision,
+                upstream_notes=(release.get('body') or '').strip(),
                 core_repository='chen08209/Clash.Meta', core_revision=core_revision,
-                inputs_sha256=digest, build_number=number, version=version, tag=f'v{version}',
+                inputs_sha256=digest, patch_sha256=patch_digest,
+                build_number=number, version_name=version_name, version=version_name,
+                pubspec_version=pubspec_version, tag=f'v{version_name}',
                 maintenance_commit=run('git', 'rev-parse', 'HEAD', capture=True).strip(),
                 package_id='io.github.chen017.flclash', android_abi='arm64-v8a', capabilities=[
                     'xhttp-download-dialer', 'provider-scoped-dialer', 'vless-0rtt-ticket-recovery',
@@ -172,7 +263,7 @@ def package():
         raise RuntimeError('APK must have the permanent personal key as its sole signer')
     info = run('aapt', 'dump', 'badging', str(path), capture=True)
     identity = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", info, re.M)
-    expected = (plan['package_id'], str(plan['build_number']), plan['upstream_tag'][1:])
+    expected = (plan['package_id'], str(plan['build_number']), plan.get('version_name') or plan['upstream_tag'][1:])
     if not identity or identity.groups() != expected:
         raise RuntimeError('Wrong APK package identity/version')
     with zipfile.ZipFile(path) as apk:
@@ -237,21 +328,7 @@ def publish():
     run('git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
         'push', 'origin', f'refs/tags/{plan["tag"]}', cwd=SOURCE)
     notes = STATE / 'notes.md'
-    notes.write_text(f'''FLClash Personal · Android · unofficial maintained build
-
-Android arm64 only. Based on {UPSTREAM} {plan['upstream_tag']}. Install alongside the official app, export/import its local backup once, then use Check for updates here.
-Uses a permanent signing key; subsequent releases update this personal app in place.
-
-<!-- flclash:changelog:begin -->
-- Independent XHTTP upload/download routes, including NAT IPv4 upload and direct IPv6 download.
-- Scoped Proxy Provider chaining, configurable H2 windows and 0-RTT ticket recovery.
-- Automatic stable upstream checks every six hours; SHA256 verified application builds only for new stable upstream app releases.
-<!-- flclash:changelog:end -->
-
-Upstream source: `{plan['upstream_commit']}`; core: `{plan['core_revision']}`.
-Exact complete app and patched submodule source, licenses and manifest are attached.
-Physical-phone VPN behavior still needs confirmation on your handset.
-''', encoding='utf-8')
+    notes.write_text(format_release_notes(plan), encoding='utf-8')
     run('gh', 'release', 'create', plan['tag'], '--repo', REPO, '--verify-tag', '--draft', '--title',
         f'FLClash Personal {plan["version"]}', '--notes-file', str(notes), *map(str, DIST.iterdir()))
     data = json.loads(run('gh', 'release', 'view', plan['tag'], '--repo', REPO,

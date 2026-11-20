@@ -9,7 +9,7 @@ from unittest import mock
 import zipfile
 
 import release
-from release import checked_patch, next_build
+from release import checked_patch, next_build_code, next_version_name
 
 
 
@@ -68,10 +68,62 @@ class ReleaseRetryTest(unittest.TestCase):
     def test_failed_publication_does_not_reuse_a_pushed_tag_or_version_code(self):
         refs = [{'ref': 'refs/tags/v0.9.3+8'}, {'ref': 'refs/tags/v0.9.4'},
                 {'ref': 'refs/tags/v0.9.2+4'}]
-        self.assertEqual(next_build({'build_number': 7}, refs), 9)
-        self.assertEqual(next_build(None, refs), 9)
-        self.assertEqual(next_build({'build_number': 10}, refs), 11)
-        self.assertEqual(next_build(None, []), 1)
+        self.assertEqual(next_build_code({'build_number': 7}, refs), 9)
+        self.assertEqual(next_build_code(None, refs), 9)
+        self.assertEqual(next_build_code({'build_number': 10}, refs), 11)
+        self.assertEqual(next_build_code(None, []), 1)
+
+    def test_next_version_name_uses_clean_personal_and_increments_only_same_upstream(self):
+        self.assertEqual(next_version_name('v0.9.3', []), '0.9.3-personal')
+        refs = [{'ref': 'refs/tags/v0.9.3-personal'}]
+        self.assertEqual(next_version_name('v0.9.3', refs), '0.9.3-personal.2')
+        refs.append({'ref': 'refs/tags/v0.9.3-personal.2'})
+        self.assertEqual(next_version_name('v0.9.3', refs), '0.9.3-personal.3')
+        self.assertEqual(next_version_name('v0.9.4', refs), '0.9.4-personal')
+
+    def test_format_release_notes_preserves_upstream_json_and_appends_personal(self):
+        upstream_json = {
+            'schemaVersion': 2,
+            'versions': [{
+                'version': '0.9.4',
+                'tag': 'v0.9.4',
+                'date': '2026-11-20',
+                'prerelease': False,
+                'groups': [{'type': 'fix', 'entries': [{'id': '1', 'text': 'Upstream fix'}]}],
+            }],
+        }
+        upstream_body = (
+            '## v0.9.4\n\n- Upstream fix\n\n'
+            f'<!-- flclash:changelog:json\n{json.dumps(upstream_json)}\n-->'
+        )
+        plan = dict(
+            upstream_tag='v0.9.4', upstream_commit='a' * 40, core_revision='b' * 40,
+            upstream_notes=upstream_body, version='0.9.4-personal', tag='v0.9.4-personal',
+        )
+        notes = release.format_release_notes(plan)
+        self.assertTrue(notes.startswith('## v0.9.4\n\n- Upstream fix'))
+        self.assertIn('\n\n---\n\n## Personal Customizations\n', notes)
+        start = notes.index(release.CHANGELOG_JSON_BEGIN) + len(release.CHANGELOG_JSON_BEGIN)
+        end = notes.index(release.CHANGELOG_JSON_END, start)
+        parsed = json.loads(notes[start:end])
+        self.assertEqual(parsed['versions'][0]['version'], '0.9.4-personal')
+        self.assertEqual(parsed['versions'][0]['tag'], 'v0.9.4-personal')
+        self.assertEqual(len(parsed['versions'][0]['groups']), 2)
+        self.assertEqual(parsed['versions'][0]['groups'][0]['entries'][0]['text'], 'Upstream fix')
+        self.assertTrue(parsed['versions'][0]['groups'][1]['entries'][0]['text'].startswith('[Personal] '))
+
+    def test_format_release_notes_fallback_wraps_upstream_and_personal_in_markers(self):
+        plan = dict(
+            upstream_tag='v0.9.4', upstream_commit='a' * 40, core_revision='b' * 40,
+            upstream_notes='<!-- flclash:changelog:begin -->\n- Upstream item\n<!-- flclash:changelog:end -->',
+            version='0.9.4-personal', tag='v0.9.4-personal',
+        )
+        notes = release.format_release_notes(plan)
+        self.assertTrue(notes.startswith(release.CHANGELOG_BEGIN))
+        self.assertIn('- Upstream item', notes)
+        self.assertIn('## Personal Customizations', notes)
+        self.assertLess(notes.index('- Upstream item'), notes.index('## Personal Customizations'))
+        self.assertTrue(notes.strip().endswith(release.CHANGELOG_END))
 
     def test_non_conflicting_upstream_edit_survives_patch_rebase(self):
         with TemporaryDirectory(prefix='personal-patch-') as directory:
@@ -118,7 +170,10 @@ class PrepareTest(unittest.TestCase):
         self.enterContext(mock.patch.multiple(release, ROOT=root, STATE=state, SOURCE=state / 'source'))
         script = personal / 'release.py'
         script.write_text('packaging code')
-        self.digest = release.inputs_digest([script])
+        patch_file = personal / 'app.patch'
+        patch_file.write_text('patch code')
+        self.digest = release.inputs_digest([script, patch_file])
+        self.patch_digest = release.inputs_digest([patch_file])
         (personal / 'test_release.py').write_text('changed test code')
         self.output = self.enterContext(mock.patch.object(release, 'output'))
         self.run = self.enterContext(mock.patch.object(release, 'run'))
@@ -159,7 +214,7 @@ class PrepareTest(unittest.TestCase):
 
 class PackageTest(unittest.TestCase):
     certificate = 'a' * 64
-    identity = "package: name='io.github.chen017.flclash' versionCode='7' versionName='0.9.3'"
+    identity = "package: name='io.github.chen017.flclash' versionCode='7' versionName='0.9.3-personal'"
     signer = f'Number of signers: 1\nSigner #1 certificate SHA-256 digest: {certificate}\n'
 
     def setUp(self):
@@ -176,7 +231,8 @@ class PackageTest(unittest.TestCase):
         self.apk.parent.mkdir(parents=True)
         self.write_apk('lib/arm64-v8a/libclash.so')
         release.write_json(state / 'plan.json', dict(
-            package_id='io.github.chen017.flclash', build_number=7, version='0.9.3+7', tag='v0.9.3+7',
+            package_id='io.github.chen017.flclash', build_number=7,
+            version_name='0.9.3-personal', version='0.9.3-personal', tag='v0.9.3-personal',
             upstream_tag='v0.9.3',
         ))
         (root / '.personal/core.patch').write_text('patch contents')
@@ -195,7 +251,7 @@ class PackageTest(unittest.TestCase):
         release.package()
 
         manifest = json.loads((self.dist / 'manifest.json').read_text())
-        apk = self.dist / 'FlClash-0.9.3+7-android-arm64-v8a.apk'
+        apk = self.dist / 'FlClash-0.9.3-personal-android-arm64-v8a.apk'
         self.assertEqual(manifest['apk']['sha256'], release.sha(apk))
         with tarfile.open(self.dist / 'complete-source.tar.gz') as archive:
             self.assertEqual(archive.getnames(), ['FlClash-personal/README.md', 'FlClash-personal/core/Clash.Meta/fragment.go'])
@@ -227,7 +283,7 @@ class PackageTest(unittest.TestCase):
         for info in (
             self.identity.replace('io.github.chen017.flclash', 'com.follow.clash'),
             self.identity.replace("versionCode='7'", "versionCode='8'"),
-            self.identity.replace("versionName='0.9.3'", "versionName='0.9.4'"),
+            self.identity.replace("versionName='0.9.3-personal'", "versionName='0.9.4-personal'"),
         ):
             with self.subTest(info=info), self.assertRaisesRegex(RuntimeError, 'Wrong APK package identity/version'):
                 self.run.side_effect = [self.signer, info + '\nother: ' + self.identity]
