@@ -141,24 +141,28 @@ jobs:
         env:
           CGO_ENABLED: 0
         run: python3 .personal/run_e2e.py
+      - name: Install Linux native dependencies for Rust-backed Flutter checks
+        if: steps.prepare.outputs.needed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev
       - name: Resolve, analyze and test Flutter
         if: steps.prepare.outputs.needed == 'true'
         working-directory: .personal/work/source
         run: |
-          # Host-side analysis and tests do not need to build native Go/Rust assets.
-          # Disable both build hooks BEFORE flutter analyze, which now invokes them.
+          # Upstream Flutter checks need rust_api's native library; libgtk-3-dev
+          # provides the glib-2.0 and gobject-2.0 pkg-config dependencies.
+          # Only skip Go/desktop setup on the host test runner, not Rust.
           cp pubspec.yaml "$RUNNER_TEMP/personal-pubspec.yaml"
           trap 'mv "$RUNNER_TEMP/personal-pubspec.yaml" pubspec.yaml' EXIT
           python3 - <<'PY'
           from pathlib import Path
           path = Path('pubspec.yaml')
           pubspec = path.read_text()
-          for package in ('setup', 'rust_api'):
-              hook = f'    {package}:\n      build_assets: true'
-              if pubspec.count(hook) != 1:
-                  raise SystemExit(f'Expected one enabled {package} build hook in pubspec.yaml')
-              pubspec = pubspec.replace(hook, f'    {package}:\n      build_assets: false')
-          path.write_text(pubspec)
+          hook = '    setup:\n      build_assets: true'
+          if pubspec.count(hook) != 1:
+              raise SystemExit('Expected one enabled Go setup build hook in pubspec.yaml')
+          path.write_text(pubspec.replace(hook, '    setup:\n      build_assets: false'))
           PY
           flutter pub get
           flutter analyze --no-pub --no-fatal-infos
