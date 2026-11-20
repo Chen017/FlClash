@@ -72,29 +72,28 @@ index 1e795f3c454f8d6e23ddfb68ea3f1d339c59b0a7..890d69ad967d27cb1e92f3f10bb9612f
      <string name="service_channel_name">FlClash Service</string>
  </resources>
 diff --git a/android/gradle.properties b/android/gradle.properties
-index cac97e80ded90a822c9be6d8e7d0e782f41027e2..6012720afdca11f7c188977acc2cbf6135904b49 100644
+index 158a301465b44293523b3c913e39cfabc5b5c39e..804aa3cdbb5bf9eb1b4c5699ca7f33a418e66f94 100644
 --- a/android/gradle.properties
 +++ b/android/gradle.properties
-@@ -1,5 +1,6 @@
+@@ -1,6 +1,7 @@
  org.gradle.jvmargs=-Xmx4G
  android.useAndroidX=true
 +force-version-code-ignoring-abi=true
- # This builtInKotlin flag was added automatically by Flutter migrator
- android.builtInKotlin=false
- # This newDsl flag was added automatically by Flutter migrator
+ # Flutter's migrators write false for either key that is missing, so both stay explicit.
+ android.builtInKotlin=true
+ # android_file_picker 2.x, pulled in by file_picker 13, configures the legacy LibraryExtension.
+ android.newDsl=false
 diff --git a/lib/common/constant.dart b/lib/common/constant.dart
-index 6dcbd6c8b1f864adbcbf4bec3aa4975bf56bd661..b6a40757ed468bac061abe7e7858ba9ca7a934a1 100644
+index b3c7a0371d78b5c38f5f045471a38b24f94ed8fd..946131d644132e79faa8cf22760f322f1d82cab6 100644
 --- a/lib/common/constant.dart
 +++ b/lib/common/constant.dart
-@@ -129,7 +129,7 @@ const systemDnsRecordKey = 'system_dns_record';
+@@ -135,5 +135,5 @@
  const bootRecordKey = 'boot_record';
  const appliedConfigMd5Key = 'applied_config_md5';
- const defaultSystemDnsFallback = '223.5.5.5';
 -const repository = 'chen08209/FlClash';
 +const repository = 'Chen017/FlClash';
  const maxMobileWidth = 600;
  const maxLaptopWidth = 840;
- const defaultTestUrl = 'https://www.gstatic.com/generate_204';
 diff --git a/lib/common/package.dart b/lib/common/package.dart
 index 5ae7e94582f7b266d9d5aa54e74c7eb56d96d101..4df18855ff6d7ba17ed1ef0f62a1953844fd8d6b 100644
 --- a/lib/common/package.dart
