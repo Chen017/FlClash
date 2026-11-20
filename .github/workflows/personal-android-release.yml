@@ -145,19 +145,23 @@ jobs:
         if: steps.prepare.outputs.needed == 'true'
         working-directory: .personal/work/source
         run: |
-          flutter pub get
-          flutter analyze --no-pub --no-fatal-infos
+          # Host-side analysis and tests do not need to build native Go/Rust assets.
+          # Disable both build hooks BEFORE flutter analyze, which now invokes them.
           cp pubspec.yaml "$RUNNER_TEMP/personal-pubspec.yaml"
           trap 'mv "$RUNNER_TEMP/personal-pubspec.yaml" pubspec.yaml' EXIT
           python3 - <<'PY'
           from pathlib import Path
           path = Path('pubspec.yaml')
           pubspec = path.read_text()
-          hook = '    setup:\n      build_assets: true'
-          if pubspec.count(hook) != 1:
-              raise SystemExit('Expected one enabled desktop setup hook in pubspec.yaml')
-          path.write_text(pubspec.replace(hook, '    setup:\n      build_assets: false'))
+          for package in ('setup', 'rust_api'):
+              hook = f'    {package}:\n      build_assets: true'
+              if pubspec.count(hook) != 1:
+                  raise SystemExit(f'Expected one enabled {package} build hook in pubspec.yaml')
+              pubspec = pubspec.replace(hook, f'    {package}:\n      build_assets: false')
+          path.write_text(pubspec)
           PY
+          flutter pub get
+          flutter analyze --no-pub --no-fatal-infos
           dart run tool/test.dart -- --reporter expanded
       - name: Restore permanent Android signing key
         if: steps.prepare.outputs.needed == 'true'
