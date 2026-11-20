@@ -198,12 +198,42 @@ def package():
     (DIST / 'SHA256SUMS').write_text(''.join(f'{sha(p)}  {p.name}\n' for p in sorted(DIST.iterdir())), encoding='utf-8')
 
 
+
+def create_release_source_tag(plan):
+    """Tag a complete app tree while keeping GitHub workflows identical to main.
+
+    GITHUB_TOKEN has contents:write but cannot push a tag whose commit introduces
+    workflow files. Use the maintenance revision as the tag commit's parent and
+    stage its workflows (without changing the actual built source worktree).
+    The complete-source.tar.gz release asset, created before this step, remains
+    the exact patched build tree including upstream workflows and submodules.
+    """
+    base = plan['maintenance_commit']
+    current = run('git', 'rev-parse', 'HEAD', cwd=ROOT, capture=True).strip()
+    if current != base:
+        raise RuntimeError('Maintenance checkout changed after source preparation')
+    run('git', 'add', '-A', cwd=SOURCE)
+    run('git', 'restore', '--staged', f'--source={base}', '--',
+        '.github/workflows', cwd=SOURCE)
+    tree = run('git', 'write-tree', cwd=SOURCE, capture=True).strip()
+    staged_workflows = run('git', 'rev-parse', f'{tree}:.github/workflows',
+                           cwd=SOURCE, capture=True).strip()
+    maintained_workflows = run('git', 'rev-parse', f'{base}:.github/workflows',
+                               cwd=SOURCE, capture=True).strip()
+    if staged_workflows != maintained_workflows:
+        raise RuntimeError('Release tag would modify maintained GitHub workflows')
+    commit = run('git', '-c', 'user.name=Chen017',
+                 '-c', 'user.email=Chen017@users.noreply.github.com',
+                 'commit-tree', tree, '-p', base,
+                 '-m', f'build(android): signed personal {plan["version"]}',
+                 cwd=SOURCE, capture=True).strip()
+    run('git', 'tag', plan['tag'], commit, cwd=SOURCE)
+    return commit
+
+
 def publish():
     plan = json.loads((STATE / 'plan.json').read_text())
-    run('git', 'add', '-A', cwd=SOURCE)
-    run('git', '-c', 'user.name=Chen017', '-c', 'user.email=Chen017@users.noreply.github.com',
-        'commit', '-m', f'build(android): signed personal {plan["version"]}', cwd=SOURCE)
-    run('git', 'tag', plan['tag'], cwd=SOURCE)
+    create_release_source_tag(plan)
     run('git', '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
         'push', 'origin', f'refs/tags/{plan["tag"]}', cwd=SOURCE)
     notes = STATE / 'notes.md'

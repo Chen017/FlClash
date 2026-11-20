@@ -12,6 +12,58 @@ import release
 from release import checked_patch, next_build
 
 
+
+class ReleaseSourceTagTest(unittest.TestCase):
+    def test_tag_is_descended_from_maintenance_and_does_not_change_workflows(self):
+        with TemporaryDirectory(prefix='personal-tag-') as directory:
+            root = Path(directory)
+            source = root / 'prepared'
+
+            def git(*args, cwd=root):
+                return subprocess.check_output(['git', *args], cwd=cwd, text=True).strip()
+
+            git('init', '-q', '-b', 'main')
+            git('config', 'user.name', 'Release test')
+            git('config', 'user.email', 'release-test@example.invalid')
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            (workflows / 'personal-android-release.yml').write_text('name: maintained workflow\n')
+            (root / 'app.txt').write_text('maintenance tree\n')
+            git('add', '-A')
+            git('commit', '-qm', 'maintenance')
+            maintenance = git('rev-parse', 'HEAD')
+
+            git('checkout', '-qb', 'upstream')
+            (workflows / 'personal-android-release.yml').unlink()
+            (workflows / 'build.yaml').write_text('name: upstream workflow\n')
+            (root / 'app.txt').write_text('upstream tree\n')
+            git('add', '-A')
+            git('commit', '-qm', 'upstream release')
+            upstream = git('rev-parse', 'HEAD')
+            git('checkout', '-q', 'main')
+            git('worktree', 'add', '-q', '--detach', str(source), upstream)
+            (source / 'app.txt').write_text('patched and tested app\n')
+
+            plan = dict(maintenance_commit=maintenance, tag='v0.9.4+6', version='0.9.4+6')
+            with mock.patch.multiple(release, ROOT=root, SOURCE=source):
+                tagged = release.create_release_source_tag(plan)
+
+            self.assertEqual(git('rev-parse', 'v0.9.4+6'), tagged)
+            self.assertEqual(git('rev-parse', f'{tagged}^'), maintenance)
+            self.assertEqual(git('diff', '--name-only', maintenance, tagged,
+                                 '--', '.github/workflows'), '')
+            self.assertEqual(git('show', f'{tagged}:app.txt'), 'patched and tested app')
+            self.assertEqual(git('show', f'{tagged}:.github/workflows/personal-android-release.yml'),
+                             'name: maintained workflow')
+            self.assertNotEqual(subprocess.run(
+                ['git', 'cat-file', '-e', f'{tagged}:.github/workflows/build.yaml'],
+                cwd=root, capture_output=True).returncode, 0)
+            self.assertEqual((source / '.github/workflows/build.yaml').read_text(),
+                             'name: upstream workflow\n')
+            self.assertEqual((source / 'app.txt').read_text(), 'patched and tested app\n')
+
+
+
 class ReleaseRetryTest(unittest.TestCase):
     def test_failed_publication_does_not_reuse_a_pushed_tag_or_version_code(self):
         refs = [{'ref': 'refs/tags/v0.9.3+8'}, {'ref': 'refs/tags/v0.9.4'},
