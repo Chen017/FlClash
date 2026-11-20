@@ -43,6 +43,13 @@ jobs:
       - name: Test release tooling and check the app patch mirror
         run: |
           python3 -m unittest discover -s .personal -p 'test_*.py' -v
+      - name: Validate maintained patches against the current stable upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git apply --stat .personal/app.patch > /dev/null
+          git apply --stat .personal/core.patch > /dev/null
+          python3 .personal/release.py prepare
   release:
     outputs:
       patch_conflict: ${{ steps.prepare.outputs.patch_conflict }}
