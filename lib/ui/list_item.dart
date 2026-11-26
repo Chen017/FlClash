@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:prism_ui/icons/icons.dart';
 import 'package:prism_ui/prism_ui.dart';
 
+import 'nested_sheet.dart';
+
 sealed class _ListItemAction {
   const _ListItemAction();
 }
@@ -26,16 +28,22 @@ final class _CheckboxAction extends _ListItemAction {
 }
 
 final class _OpenAction extends _ListItemAction {
-  final Widget widget;
+  final Widget? widget;
+  final WidgetBuilder? builder;
   final ValueChanged<dynamic>? onChanged;
 
   final bool forceFull;
+  final bool enabled;
 
   const _OpenAction({
-    required this.widget,
+    this.widget,
+    this.builder,
     this.onChanged,
     required this.forceFull,
-  });
+    required this.enabled,
+  }) : assert((widget == null) != (builder == null));
+
+  Widget buildPage(BuildContext context) => widget ?? builder!(context);
 }
 
 final class _OptionsAction<T> extends _ListItemAction {
@@ -43,12 +51,14 @@ final class _OptionsAction<T> extends _ListItemAction {
   final T value;
   final String Function(T value) textBuilder;
   final ValueChanged<T> onChanged;
+  final Set<T> sectionStarts;
 
   const _OptionsAction({
     required this.options,
     required this.textBuilder,
     required this.value,
     required this.onChanged,
+    required this.sectionStarts,
   });
 }
 
@@ -78,12 +88,12 @@ class ListItem<T> extends StatelessWidget {
   final Widget? leading;
   final Widget title;
   final Widget? subtitle;
-  final EdgeInsets padding;
+  final EdgeInsetsGeometry? padding;
   final ListRowAlignment alignment;
   final Widget? trailing;
   final _ListItemAction _action;
   final double? horizontalTitleGap;
-  final double minVerticalPadding;
+  final double? minVerticalPadding;
   final double? minTileHeight;
   final void Function()? onTap;
 
@@ -92,12 +102,12 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.symmetric(horizontal: 16),
+    this.padding,
     this.trailing,
     this.horizontalTitleGap,
     this.onTap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = const _DefaultAction();
 
@@ -106,19 +116,24 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.symmetric(horizontal: 16),
+    this.padding,
     this.trailing,
-    required Widget widget,
+    Widget? widget,
+    WidgetBuilder? builder,
     ValueChanged<dynamic>? onChanged,
     bool forceFull = true,
+    bool enabled = true,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
-  }) : _action = _OpenAction(
+  }) : assert((widget == null) != (builder == null)),
+       _action = _OpenAction(
          widget: widget,
+         builder: builder,
          onChanged: onChanged,
          forceFull: forceFull,
+         enabled: enabled,
        ),
        onTap = null;
 
@@ -127,20 +142,22 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.only(left: 16, right: 8),
+    this.padding,
     required List<T> options,
     required T value,
     required String Function(T value) textBuilder,
     required ValueChanged<T> onChanged,
+    Set<T> sectionStarts = const {},
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _OptionsAction<T>(
          options: options,
          value: value,
          textBuilder: textBuilder,
          onChanged: onChanged,
+         sectionStarts: sectionStarts,
        ),
        trailing = null,
        onTap = null;
@@ -150,7 +167,7 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.symmetric(horizontal: 16),
+    this.padding,
     this.trailing,
     required String dialogTitle,
     required String value,
@@ -162,7 +179,7 @@ class ListItem<T> extends StatelessWidget {
     String? resetValue,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _InputAction(
          title: dialogTitle,
@@ -181,12 +198,12 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.only(left: 16, right: 8),
+    this.padding,
     bool value = false,
     ValueChanged<bool?>? onChanged,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _CheckboxAction(value: value, onChanged: onChanged),
        trailing = null,
@@ -197,12 +214,12 @@ class ListItem<T> extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.leading,
-    this.padding = const EdgeInsets.only(left: 16, right: 8),
+    this.padding,
     required bool value,
     ValueChanged<bool>? onChanged,
     this.horizontalTitleGap,
     this.minTileHeight,
-    this.minVerticalPadding = listRowVerticalPadding,
+    this.minVerticalPadding,
     this.alignment = ListRowAlignment.center,
   }) : _action = _ToggleAction(value: value, onChanged: onChanged),
        trailing = null,
@@ -213,32 +230,45 @@ class ListItem<T> extends StatelessWidget {
     required ItemPosition? position,
     void Function()? onTap,
     Widget? trailing,
-    Widget? leading,
+    double trailingInset = 0,
   }) {
+    trailing ??= this.trailing;
+    final insets = context.listInsets;
+    final padding =
+        this.padding ??
+        EdgeInsetsDirectional.only(
+          start: insets.leading,
+          end: trailing == null
+              ? insets.leading
+              : insets.trailing - trailingInset,
+        );
     if (position != null) {
       // OpenContainer reparents the closed tile out of the section's provider.
       return ItemPositionProvider(
         position: position,
         child: DecorationListItem(
-          leading: leading ?? this.leading,
+          leading: leading,
           title: title,
           subtitle: subtitle,
-          trailing: trailing ?? this.trailing,
+          trailing: trailing,
           contentPadding: padding,
           horizontalTitleGap: horizontalTitleGap,
+          minVerticalPadding: minVerticalPadding,
+          alignment: alignment,
+          minHeight: minTileHeight,
           onPressed: onTap,
         ),
       );
     }
     final row = ListRow(
-      leading: leading ?? this.leading,
+      leading: leading,
       title: title,
       subtitle: subtitle,
-      trailing: trailing ?? this.trailing,
+      trailing: trailing,
       padding: padding,
       horizontalTitleGap: horizontalTitleGap,
       minVerticalPadding: minVerticalPadding,
-      minHeight: minTileHeight ?? listRowMinHeight,
+      minHeight: minTileHeight,
       alignment: alignment,
     );
     if (onTap == null) {
@@ -255,23 +285,51 @@ class ListItem<T> extends StatelessWidget {
   Widget get _pageTrailing =>
       trailing ?? const GlyphIcon(Glyphs.chevronForward);
 
+  // The glyph's stroke ends 6.7 inside its box; iOS's ends 0.7 inside its own.
+  /// What the chevron glyph leaves beside its stroke.
+  static const chevronInset = 6.0;
+
+  /// A row's padding when it ends in a chevron, whose stroke then meets the
+  /// margin the row's other ends keep.
+  static EdgeInsetsDirectional chevronPaddingOf(BuildContext context) {
+    final insets = context.listInsets;
+    return EdgeInsetsDirectional.only(
+      start: insets.leading,
+      end: insets.trailing - chevronInset,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final position = ItemPositionProvider.of(context)?.position;
     switch (_action) {
       case final _OpenAction openDelegate:
-        final child = openDelegate.widget;
         final onChanged = openDelegate.onChanged;
+        if (!openDelegate.enabled) {
+          // Dimmed as a disabled Switch draws its thumb; the row's text stays as it is.
+          return _buildRow(
+            context,
+            position: position,
+            trailingInset: chevronInset,
+            trailing:
+                trailing ??
+                GlyphIcon(
+                  Glyphs.chevronForward,
+                  color: context.colorScheme.onSurface.opacity38,
+                ),
+          );
+        }
         if (!context.isMobileView) {
           return _buildRow(
             context,
             position: position,
             trailing: _pageTrailing,
+            trailingInset: chevronInset,
             onTap: () async {
-              final result = await showExtend<dynamic>(
+              final result = await showNestedExtend<dynamic>(
                 context,
                 props: ExtendProps(forceFull: openDelegate.forceFull),
-                builder: (_) => child,
+                builder: openDelegate.buildPage,
               );
               onChanged?.call(result);
             },
@@ -287,12 +345,13 @@ class ListItem<T> extends StatelessWidget {
               context,
               position: position,
               trailing: _pageTrailing,
+              trailingInset: chevronInset,
               onTap: action,
             );
           },
           onClosed: onChanged,
-          openBuilder: (_, action) {
-            return child;
+          openBuilder: (context, action) {
+            return openDelegate.buildPage(context);
           },
         );
       case final _OptionsAction options:
@@ -304,6 +363,7 @@ class ListItem<T> extends StatelessWidget {
           // As an iOS pop-up row does, a tap anywhere on the row opens the
           // menu out of its value.
           onTap: () => openMenu?.call(),
+          trailingInset: _OptionsValueButton.endInset,
           trailing: PopupAnchor(
             targetBuilder: (open) {
               openMenu = open;
@@ -318,6 +378,9 @@ class ListItem<T> extends StatelessWidget {
                   PopupMenuItem(
                     label: optionsDelegate.textBuilder(option),
                     checked: option == optionsDelegate.value,
+                    section: optionsDelegate.sectionStarts.contains(option)
+                        ? const PopupMenuSection()
+                        : null,
                     onPressed: () => optionsDelegate.onChanged(option),
                   ),
               ],
@@ -359,6 +422,7 @@ class ListItem<T> extends StatelessWidget {
               : () {
                   checkboxDelegate.onChanged!(!checkboxDelegate.value);
                 },
+          trailingInset: Checkbox.edgeInset,
           trailing: Checkbox(
             value: checkboxDelegate.value,
             onChanged: checkboxDelegate.onChanged,
@@ -373,6 +437,7 @@ class ListItem<T> extends StatelessWidget {
               : () {
                   toggleAction.onChanged!(!toggleAction.value);
                 },
+          trailingInset: Switch.edgeInset,
           trailing: Switch(
             value: toggleAction.value,
             onChanged: toggleAction.onChanged,
@@ -389,6 +454,10 @@ const _optionsValueMaxWidth = 160.0;
 class _OptionsValueButton extends StatelessWidget {
   const _OptionsValueButton({required this.label, required this.onPressed});
 
+  static const _padding = 8.0;
+
+  static const endInset = _padding + 5.7;
+
   final String label;
   final VoidCallback onPressed;
 
@@ -399,17 +468,21 @@ class _OptionsValueButton extends StatelessWidget {
       style: ButtonStyle.from(
         foregroundColor: context.colorScheme.onSurfaceVariant,
         textStyle: context.listTitleStyle,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: _padding),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         spacing: 4,
         children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _optionsValueMaxWidth),
-            child: PopupValueText(
-              label,
-              alignment: AlignmentDirectional.centerEnd,
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: _optionsValueMaxWidth,
+              ),
+              child: PopupValueText(
+                label,
+                alignment: AlignmentDirectional.centerEnd,
+              ),
             ),
           ),
           const GlyphIcon(Glyphs.picker),

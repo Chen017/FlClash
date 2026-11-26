@@ -16,8 +16,8 @@ class CustomProxyDialersView extends ConsumerWidget {
     WidgetRef ref,
     CustomProxy proxy,
   ) async {
-    final res = await showSheet<String>(
-      context: context,
+    final res = await showNestedSheet<String>(
+      context,
       builder: (context) => Consumer(
         builder: (_, ref, _) {
           final appLocalizations = context.appLocalizations;
@@ -153,7 +153,13 @@ class _ProxyDialerItem extends ConsumerWidget {
     return DecorationListItem(
       invalid: issues.isNotEmpty,
       onPressed: onPressed,
-      contentPadding: const EdgeInsets.only(left: 16, right: 8),
+      contentPadding: EdgeInsetsDirectional.only(
+        start: context.listInsets.leading,
+        end: issues.isEmpty
+            ? context.listInsets.leading
+            : context.listInsets.trailing -
+                  MinIconButtonTheme.edgeInsetOf(context),
+      ),
       title: TooltipText(
         text: Text(proxy.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),

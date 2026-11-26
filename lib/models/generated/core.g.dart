@@ -92,7 +92,7 @@ _UpdateParams _$UpdateParamsFromJson(Map<String, dynamic> json) =>
               ?.map((e) => e as String)
               .toList() ??
           const [],
-      geoAutoUpdate: json['geo-auto-update'] as bool? ?? false,
+      geoAutoUpdate: json['geo-auto-update'] as bool? ?? true,
       geoUpdateInterval: (json['geo-update-interval'] as num?)?.toInt() ?? 24,
       geoXUrl:
           (json['geox-url'] as Map<String, dynamic>?)?.map(
@@ -125,7 +125,7 @@ Map<String, dynamic> _$UpdateParamsToJson(_UpdateParams instance) =>
 
 const _$FindProcessModeEnumMap = {
   FindProcessMode.always: 'always',
-  FindProcessMode.off: 'off',
+  FindProcessMode.strict: 'strict',
 };
 
 const _$ModeEnumMap = {
@@ -181,6 +181,185 @@ Map<String, dynamic> _$MitmScriptOutputToJson(_MitmScriptOutput instance) =>
       'error': instance.error,
     };
 
+MitmUrlRewriteView _$MitmUrlRewriteViewFromJson(Map<String, dynamic> json) =>
+    MitmUrlRewriteView(
+      pattern: json['pattern'] as String,
+      action: json['action'] as String,
+      replacement: json['replacement'] as String?,
+      requestHead: json['requestHead'] as String?,
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmUrlRewriteViewToJson(MitmUrlRewriteView instance) =>
+    <String, dynamic>{
+      'pattern': instance.pattern,
+      'action': instance.action,
+      'replacement': instance.replacement,
+      'requestHead': instance.requestHead,
+      'type': instance.$type,
+    };
+
+MitmHeaderRewriteView _$MitmHeaderRewriteViewFromJson(
+  Map<String, dynamic> json,
+) => MitmHeaderRewriteView(
+  phase: json['phase'] as String,
+  pattern: json['pattern'] as String,
+  requestHead: json['requestHead'] as String?,
+  responseHead: json['responseHead'] as String?,
+  action: json['action'] as String,
+  name: json['name'] as String?,
+  value: json['value'] as String?,
+  regex: json['regex'] as String?,
+  replacement: json['replacement'] as String?,
+  $type: json['type'] as String?,
+);
+
+Map<String, dynamic> _$MitmHeaderRewriteViewToJson(
+  MitmHeaderRewriteView instance,
+) => <String, dynamic>{
+  'phase': instance.phase,
+  'pattern': instance.pattern,
+  'requestHead': instance.requestHead,
+  'responseHead': instance.responseHead,
+  'action': instance.action,
+  'name': instance.name,
+  'value': instance.value,
+  'regex': instance.regex,
+  'replacement': instance.replacement,
+  'type': instance.$type,
+};
+
+MitmBodyRewriteView _$MitmBodyRewriteViewFromJson(Map<String, dynamic> json) =>
+    MitmBodyRewriteView(
+      phase: json['phase'] as String,
+      pattern: json['pattern'] as String,
+      requestHead: json['requestHead'] as String?,
+      responseHead: json['responseHead'] as String?,
+      replacements:
+          (json['replacements'] as List<dynamic>?)
+              ?.map(
+                (e) => MitmBodyReplacement.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          const [],
+      jq: json['jq'] as String?,
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmBodyRewriteViewToJson(
+  MitmBodyRewriteView instance,
+) => <String, dynamic>{
+  'phase': instance.phase,
+  'pattern': instance.pattern,
+  'requestHead': instance.requestHead,
+  'responseHead': instance.responseHead,
+  'replacements': instance.replacements,
+  'jq': instance.jq,
+  'type': instance.$type,
+};
+
+MitmMapLocalView _$MitmMapLocalViewFromJson(Map<String, dynamic> json) =>
+    MitmMapLocalView(
+      pattern: json['pattern'] as String,
+      requestHead: json['requestHead'] as String?,
+      dataType: json['dataType'] as String,
+      data: json['data'] as String? ?? '',
+      status: (json['status'] as num?)?.toInt(),
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmMapLocalViewToJson(MitmMapLocalView instance) =>
+    <String, dynamic>{
+      'pattern': instance.pattern,
+      'requestHead': instance.requestHead,
+      'dataType': instance.dataType,
+      'data': instance.data,
+      'status': instance.status,
+      'type': instance.$type,
+    };
+
+MitmScriptView _$MitmScriptViewFromJson(Map<String, dynamic> json) =>
+    MitmScriptView(
+      name: json['name'] as String,
+      kind: json['kind'] as String,
+      pattern: json['pattern'] as String?,
+      cronexp: json['cronexp'] as String?,
+      event: json['event'] as String?,
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmScriptViewToJson(MitmScriptView instance) =>
+    <String, dynamic>{
+      'name': instance.name,
+      'kind': instance.kind,
+      'pattern': instance.pattern,
+      'cronexp': instance.cronexp,
+      'event': instance.event,
+      'type': instance.$type,
+    };
+
+MitmHostsView _$MitmHostsViewFromJson(Map<String, dynamic> json) =>
+    MitmHostsView(
+      entries:
+          (json['entries'] as List<dynamic>?)
+              ?.map((e) => MitmHostEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmHostsViewToJson(MitmHostsView instance) =>
+    <String, dynamic>{'entries': instance.entries, 'type': instance.$type};
+
+MitmSourcesView _$MitmSourcesViewFromJson(Map<String, dynamic> json) =>
+    MitmSourcesView(
+      entries:
+          (json['entries'] as List<dynamic>?)
+              ?.map((e) => MitmSourceEntry.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      $type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$MitmSourcesViewToJson(MitmSourcesView instance) =>
+    <String, dynamic>{'entries': instance.entries, 'type': instance.$type};
+
+_MitmBodyReplacement _$MitmBodyReplacementFromJson(Map<String, dynamic> json) =>
+    _MitmBodyReplacement(
+      regex: json['regex'] as String,
+      replacement: json['replacement'] as String,
+    );
+
+Map<String, dynamic> _$MitmBodyReplacementToJson(
+  _MitmBodyReplacement instance,
+) => <String, dynamic>{
+  'regex': instance.regex,
+  'replacement': instance.replacement,
+};
+
+_MitmHostEntry _$MitmHostEntryFromJson(Map<String, dynamic> json) =>
+    _MitmHostEntry(
+      host: json['host'] as String,
+      port: (json['port'] as num?)?.toInt(),
+      exclude: json['exclude'] as bool? ?? false,
+    );
+
+Map<String, dynamic> _$MitmHostEntryToJson(_MitmHostEntry instance) =>
+    <String, dynamic>{
+      'host': instance.host,
+      'port': instance.port,
+      'exclude': instance.exclude,
+    };
+
+_MitmSourceEntry _$MitmSourceEntryFromJson(Map<String, dynamic> json) =>
+    _MitmSourceEntry(
+      network: json['network'] as String,
+      exclude: json['exclude'] as bool? ?? false,
+    );
+
+Map<String, dynamic> _$MitmSourceEntryToJson(_MitmSourceEntry instance) =>
+    <String, dynamic>{'network': instance.network, 'exclude': instance.exclude};
+
 _MitmExchangeSummary _$MitmExchangeSummaryFromJson(Map<String, dynamic> json) =>
     _MitmExchangeSummary(
       id: (json['id'] as num).toInt(),
@@ -193,6 +372,22 @@ _MitmExchangeSummary _$MitmExchangeSummaryFromJson(Map<String, dynamic> json) =>
       requestSize: (json['request-size'] as num?)?.toInt() ?? 0,
       responseSize: (json['response-size'] as num?)?.toInt() ?? 0,
       error: json['error'] as String? ?? '',
+      host: json['host'] as String? ?? '',
+      path: json['path'] as String? ?? '',
+      contentType: json['content-type'] as String? ?? '',
+      statusClass: json['status-class'] as String? ?? '',
+      kind: json['kind'] as String? ?? '',
+      rewritten: json['rewritten'] as bool? ?? false,
+      actionKinds:
+          (json['action-kinds'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
+      answer: json['answer'] as String? ?? '',
+      connectionId: _connectionIdOf(json['connection-id']),
+      app: json['app'] == null
+          ? null
+          : MitmApp.fromJson(json['app'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$MitmExchangeSummaryToJson(
@@ -208,7 +403,64 @@ Map<String, dynamic> _$MitmExchangeSummaryToJson(
   'request-size': instance.requestSize,
   'response-size': instance.responseSize,
   'error': instance.error,
+  'host': instance.host,
+  'path': instance.path,
+  'content-type': instance.contentType,
+  'status-class': instance.statusClass,
+  'kind': instance.kind,
+  'rewritten': instance.rewritten,
+  'action-kinds': instance.actionKinds,
+  'answer': instance.answer,
+  'connection-id': instance.connectionId,
+  'app': instance.app,
 };
+
+_MitmApp _$MitmAppFromJson(Map<String, dynamic> json) => _MitmApp(
+  process: json['process'] as String? ?? '',
+  processPath: json['process-path'] as String? ?? '',
+  uid: (json['uid'] as num?)?.toInt(),
+);
+
+Map<String, dynamic> _$MitmAppToJson(_MitmApp instance) => <String, dynamic>{
+  'process': instance.process,
+  'process-path': instance.processPath,
+  'uid': instance.uid,
+};
+
+_MitmQueryPage _$MitmQueryPageFromJson(
+  Map<String, dynamic> json,
+) => _MitmQueryPage(
+  capturing: json['capturing'] as bool? ?? false,
+  since: json['since'] == null ? null : DateTime.parse(json['since'] as String),
+  version: (json['version'] as num?)?.toInt() ?? 0,
+  oldest: (json['oldest'] as num?)?.toInt() ?? 0,
+  held: (json['held'] as num?)?.toInt() ?? 0,
+  matched: (json['matched'] as num?)?.toInt() ?? 0,
+  exchanges:
+      (json['exchanges'] as List<dynamic>?)
+          ?.map((e) => MitmExchangeSummary.fromJson(e as Map<String, dynamic>))
+          .toList() ??
+      const [],
+  next: (json['next'] as num?)?.toInt(),
+  unmatched:
+      (json['unmatched'] as List<dynamic>?)
+          ?.map((e) => (e as num).toInt())
+          .toList() ??
+      const [],
+);
+
+Map<String, dynamic> _$MitmQueryPageToJson(_MitmQueryPage instance) =>
+    <String, dynamic>{
+      'capturing': instance.capturing,
+      'since': instance.since?.toIso8601String(),
+      'version': instance.version,
+      'oldest': instance.oldest,
+      'held': instance.held,
+      'matched': instance.matched,
+      'exchanges': instance.exchanges,
+      'next': instance.next,
+      'unmatched': instance.unmatched,
+    };
 
 _MitmExchangeList _$MitmExchangeListFromJson(
   Map<String, dynamic> json,
@@ -235,6 +487,7 @@ _MitmAction _$MitmActionFromJson(Map<String, dynamic> json) => _MitmAction(
   kind: json['kind'] as String,
   phase: json['phase'] as String? ?? '',
   detail: json['detail'] as String? ?? '',
+  module: json['module'] as String? ?? '',
 );
 
 Map<String, dynamic> _$MitmActionToJson(_MitmAction instance) =>
@@ -242,6 +495,22 @@ Map<String, dynamic> _$MitmActionToJson(_MitmAction instance) =>
       'kind': instance.kind,
       'phase': instance.phase,
       'detail': instance.detail,
+      'module': instance.module,
+    };
+
+_MitmRoute _$MitmRouteFromJson(Map<String, dynamic> json) => _MitmRoute(
+  rule: json['rule'] as String? ?? '',
+  rulePayload: json['rule-payload'] as String? ?? '',
+  chains:
+      (json['chains'] as List<dynamic>?)?.map((e) => e as String).toList() ??
+      const [],
+);
+
+Map<String, dynamic> _$MitmRouteToJson(_MitmRoute instance) =>
+    <String, dynamic>{
+      'rule': instance.rule,
+      'rule-payload': instance.rulePayload,
+      'chains': instance.chains,
     };
 
 _MitmExchange _$MitmExchangeFromJson(
@@ -257,6 +526,7 @@ _MitmExchange _$MitmExchangeFromJson(
   originalUrl: json['original-url'] as String? ?? '',
   proto: json['proto'] as String? ?? '',
   status: (json['status'] as num?)?.toInt() ?? 0,
+  reason: json['reason'] as String? ?? '',
   requestSize: (json['request-size'] as num?)?.toInt() ?? 0,
   responseSize: (json['response-size'] as num?)?.toInt() ?? 0,
   error: json['error'] as String? ?? '',
@@ -278,6 +548,9 @@ _MitmExchange _$MitmExchangeFromJson(
           ?.map((e) => MitmAction.fromJson(e as Map<String, dynamic>))
           .toList() ??
       const [],
+  route: json['route'] == null
+      ? null
+      : MitmRoute.fromJson(json['route'] as Map<String, dynamic>),
 );
 
 Map<String, dynamic> _$MitmExchangeToJson(_MitmExchange instance) =>
@@ -292,6 +565,7 @@ Map<String, dynamic> _$MitmExchangeToJson(_MitmExchange instance) =>
       'original-url': instance.originalUrl,
       'proto': instance.proto,
       'status': instance.status,
+      'reason': instance.reason,
       'request-size': instance.requestSize,
       'response-size': instance.responseSize,
       'error': instance.error,
@@ -299,6 +573,7 @@ Map<String, dynamic> _$MitmExchangeToJson(_MitmExchange instance) =>
       'request-header': instance.requestHeader,
       'response-header': instance.responseHeader,
       'actions': instance.actions,
+      'route': instance.route,
     };
 
 _MitmBody _$MitmBodyFromJson(Map<String, dynamic> json) => _MitmBody(
@@ -388,12 +663,14 @@ _RouteSnapshot _$RouteSnapshotFromJson(Map<String, dynamic> json) =>
     _RouteSnapshot(
       coreEpoch: (json['core-epoch'] as num?)?.toInt() ?? 0,
       routeVersion: (json['route-version'] as num?)?.toInt() ?? 0,
+      running: json['running'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$RouteSnapshotToJson(_RouteSnapshot instance) =>
     <String, dynamic>{
       'core-epoch': instance.coreEpoch,
       'route-version': instance.routeVersion,
+      'running': instance.running,
     };
 
 _RouteHit _$RouteHitFromJson(Map<String, dynamic> json) => _RouteHit(
@@ -564,6 +841,7 @@ _ServiceCheckItem _$ServiceCheckItemFromJson(Map<String, dynamic> json) =>
       name: json['name'] as String? ?? '',
       status: json['status'] as String? ?? '',
       region: json['region'] as String? ?? '',
+      ip: json['ip'] as String? ?? '',
       delay: (json['delay'] as num?)?.toInt() ?? 0,
       chains:
           (json['chains'] as List<dynamic>?)
@@ -585,6 +863,7 @@ Map<String, dynamic> _$ServiceCheckItemToJson(_ServiceCheckItem instance) =>
       'name': instance.name,
       'status': instance.status,
       'region': instance.region,
+      'ip': instance.ip,
       'delay': instance.delay,
       'chains': instance.chains,
       'checked-at': instance.checkedAt,

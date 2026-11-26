@@ -489,53 +489,56 @@ class _CustomProxiesViewState extends ConsumerState<CustomProxiesView> {
             ),
           ),
           child: Builder(
-            builder: (context) => CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: SizedBox(height: context.contentTopPadding),
-                ),
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    0,
-                    16,
-                    16 + context.bottomInset,
+            builder: (context) => ArrivalCacheExtentBuilder(
+              builder: (cacheExtent) => CustomScrollView(
+                scrollCacheExtent: cacheExtent,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: context.contentTopPadding),
                   ),
-                  sliver: reorderable
-                      ? SliverPrismReorderableList(
-                          itemCount: visible.length,
-                          itemBuilder: (_, index) => _buildNode(
-                            visible[index],
-                            selected: selected,
-                            position: ItemPosition.get(index, visible.length),
-                            dragIndex: index,
-                          ),
-                          proxyDecorator: (child, index, animation) =>
-                              commonProxyDecorator(
-                                _buildNode(
-                                  visible[index],
-                                  selected: selected,
-                                  position: ItemPosition.get(
-                                    index,
-                                    visible.length,
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      0,
+                      16,
+                      16 + context.bottomInset,
+                    ),
+                    sliver: reorderable
+                        ? SliverPrismReorderableList(
+                            itemCount: visible.length,
+                            itemBuilder: (_, index) => _buildNode(
+                              visible[index],
+                              selected: selected,
+                              position: ItemPosition.get(index, visible.length),
+                              dragIndex: index,
+                            ),
+                            proxyDecorator: (child, index, animation) =>
+                                commonProxyDecorator(
+                                  _buildNode(
+                                    visible[index],
+                                    selected: selected,
+                                    position: ItemPosition.get(
+                                      index,
+                                      visible.length,
+                                    ),
+                                    dragIndex: index,
                                   ),
-                                  dragIndex: index,
+                                  index,
+                                  animation,
                                 ),
-                                index,
-                                animation,
-                              ),
-                          onReorderItem: _handleReorder,
-                        )
-                      : SliverPrismList(
-                          itemCount: visible.length,
-                          itemBuilder: (_, index) => _buildNode(
-                            visible[index],
-                            selected: selected,
-                            position: ItemPosition.get(index, visible.length),
+                            onReorderItem: _handleReorder,
+                          )
+                        : SliverPrismList(
+                            itemCount: visible.length,
+                            itemBuilder: (_, index) => _buildNode(
+                              visible[index],
+                              selected: selected,
+                              position: ItemPosition.get(index, visible.length),
+                            ),
                           ),
-                        ),
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -571,7 +574,10 @@ class _NodeItem extends ConsumerWidget {
     return DecorationListItem(
       invalid: issues.isNotEmpty,
       isSelected: isSelected,
-      contentPadding: const EdgeInsets.only(left: 16, right: 8),
+      contentPadding: EdgeInsetsDirectional.only(
+        start: context.listInsets.leading,
+        end: context.listInsets.trailing - Checkbox.edgeInset,
+      ),
       onPressed: isEditing ? onSelected : onPressed,
       title: EmojiText(
         proxy.name.isEmpty ? '-' : proxy.name,
@@ -1155,9 +1161,10 @@ class _EditCustomProxyViewState extends ConsumerState<_EditCustomProxyView> {
   }
 
   Future<void> _handleSelectType() async {
+    final capabilities = ref.read(coreCapabilitiesStateProvider);
     final res = await _selectChoice(
       title: context.appLocalizations.proxyType,
-      items: customProxyTypes,
+      items: customProxyTypes.where(capabilities.supportsProxyType).toList(),
       selectedOf: (state) => state.type,
     );
     if (res == null) {
@@ -1169,7 +1176,12 @@ class _EditCustomProxyViewState extends ConsumerState<_EditCustomProxyView> {
   Future<void> _handleSelectChoice(ProxyField field) async {
     final res = await _selectChoice(
       title: field.label(context.appLocalizations),
-      items: ref.read(customProxyProvider).choicesOf(field),
+      items: ref
+          .read(coreCapabilitiesStateProvider)
+          .supportedChoices(
+            field,
+            ref.read(customProxyProvider).choicesOf(field),
+          ),
       selectedOf: (state) => state.valueOf(field)?.toString(),
     );
     if (res == null) {
@@ -1494,9 +1506,9 @@ class _EditCustomProxyViewState extends ConsumerState<_EditCustomProxyView> {
         slivers: [
           SliverCustomIssuesBanner(issues: issues),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-            ).copyWith(bottom: 20 + context.bottomInset),
+            padding: context.listInsets.page().copyWith(
+              bottom: 20 + context.bottomInset,
+            ),
             sliver: SliverList.list(
               children: [
                 generateSection(

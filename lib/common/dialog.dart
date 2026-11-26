@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/widgets/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -129,8 +131,8 @@ class Dialogs {
   }
 
   Future<void> showFailureDetails(List<UpdatingMessage> failures) {
-    return showSheet(
-      context: _context,
+    return showNestedSheet(
+      _context,
       builder: (_) => _FailureDetailsSheet(failures: failures),
     );
   }
@@ -236,6 +238,11 @@ class Dialogs {
     BannerHost.maybeOf(context)?.show(text, level: level, onTap: onTap);
   }
 
+  Future<void> copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    showBanner(currentAppLocalizations.copySuccess);
+  }
+
   void showFailures(List<UpdatingMessage> failures) {
     final appLocalizations = currentAppLocalizations;
     switch (failures) {
@@ -255,6 +262,17 @@ class Dialogs {
           },
         );
     }
+  }
+
+  void showMixedPortReset(Object value, int port) {
+    commonPrint.log(
+      'mixed-port $value reset to $port',
+      logLevel: LogLevel.warning,
+    );
+    showBanner(
+      currentAppLocalizations.mixedPortReset(value, port),
+      level: BannerLevel.warning,
+    );
   }
 
   Future<void> openUrl(String url) async {
@@ -286,7 +304,7 @@ class _FailureDetailsSheet extends StatelessWidget {
       title: context.appLocalizations.errorDetails,
       body: SelectionArea(
         child: PrismListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+          padding: context.listInsets.page().copyWith(
             top: context.sectionsTopPadding,
             bottom: 20 + context.bottomInset,
           ),
@@ -307,6 +325,7 @@ class _FailureDetailsSheet extends StatelessWidget {
                   ),
               ],
               footer: message,
+              last: index == groups.length - 1,
             );
           },
         ),

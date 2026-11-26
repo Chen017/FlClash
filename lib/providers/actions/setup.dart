@@ -32,6 +32,17 @@ class _RunRequest {
   });
 }
 
+const _closestBeats = Duration(milliseconds: 500);
+
+int _nextRunTime(int? shown, Duration elapsed) {
+  final rounded = (elapsed.inMilliseconds / 1000).round() * 1000;
+  if (shown == null) {
+    return rounded;
+  }
+  final next = shown + 1000;
+  return (next - elapsed.inMilliseconds).abs() > 1000 ? rounded : next;
+}
+
 @Riverpod(keepAlive: true)
 class SetupAction extends _$SetupAction {
   CoreController get _core => ref.read(coreHandlerProvider);
@@ -40,12 +51,14 @@ class SetupAction extends _$SetupAction {
   final _setupScheduler = SerialTaskScheduler();
   final _listenerScheduler = SerialTaskScheduler();
   _RunRequest? _latestRunRequest;
+  Future<void>? _initialRun;
   DateTime? _startTime;
+  DateTime? _runTimeMovedAt;
+  var _resumeOnRestart = false;
+  ({String digest, Set<String> names})? _outboundNames;
   _SetupInputs? _appliedInputs;
   var _lastPushDuration = Duration.zero;
   var _pendingForceApply = false;
-
-  bool get _isRunning => _startTime != null && _startTime!.isBeforeNow;
 
   @override
   void build() {
@@ -78,7 +91,9 @@ class SetupAction extends _$SetupAction {
     ref.read(delayDataSourceProvider.notifier).value = {};
     final setupResult = applyProfile(force: true);
     ref.read(logsProvider.notifier).value = FixedList(maxLogsLength);
-    ref.read(requestsProvider.notifier).value = FixedList(maxRequestsLength);
+    ref.read(requestsProvider.notifier).value = ConnectionLog(
+      maxRequestsLength,
+    );
     ref.read(dnsQueriesProvider.notifier).value = FixedList(
       maxDnsQueriesLength,
     );
@@ -127,35 +142,81 @@ class SetupAction extends _$SetupAction {
     _runtimeTimer = null;
   }
 
+  // The runtime waits for its tick's traffic, so both redraw in one frame.
   void _refreshRunningState() {
-    _updateRunTime();
-    unawaited(ref.read(commonActionProvider.notifier).updateTraffic());
+    unawaited(
+      ref
+          .read(commonActionProvider.notifier)
+          .updateTraffic()
+          .whenComplete(_updateRunTime),
+    );
   }
 
   void _updateRunTime() {
     final startTime = _startTime;
-    ref.read(runTimeProvider.notifier).value = startTime == null
-        ? null
-        : DateTime.now().millisecondsSinceEpoch -
-              startTime.millisecondsSinceEpoch;
+    final runTime = ref.read(runTimeProvider.notifier);
+    if (startTime == null) {
+      _runTimeMovedAt = null;
+      runTime.value = null;
+      return;
+    }
+    final now = DateTime.now();
+    final movedAt = _runTimeMovedAt;
+    // Starting sets it just before the first tick's read returns.
+    if (movedAt != null && now.difference(movedAt) < _closestBeats) {
+      return;
+    }
+    _runTimeMovedAt = now;
+    runTime.value = _nextRunTime(runTime.value, now.difference(startTime));
   }
 
   @protected
   Future<DateTime?> serviceStartTime() async => service?.getRunTime();
 
   Future<void> initStatus() async {
-    if (!globalState.needInitStatus) {
+    if (_initialRun == null) {
+      await _restoreStatus();
+    }
+    Future<void>? joined;
+    while (!identical(joined, _initialRun)) {
+      joined = _initialRun;
+      await joined;
+    }
+  }
+
+  Future<void> _restoreStatus() async {
+    final startTime = await serviceStartTime();
+    final running = startTime?.isBeforeNow ?? false;
+    final digest = running ? await preferences.getAppliedConfigMd5() : null;
+    if (_initialRun != null) {
       return;
     }
-    _startTime = await serviceStartTime();
-    if (_isRunning) {
-      globalState.lastConfigMd5 = await preferences.getAppliedConfigMd5();
+    _startTime = startTime;
+    if (running) {
+      globalState.lastConfigMd5 = digest;
       await _run(true, initialize: true, resume: true);
     } else if (ref.read(appSettingProvider).autoRun) {
       await setRunning(true, initialize: true);
     } else {
       await globalState.safeRun(() => applyProfile(force: true));
     }
+  }
+
+  bool get wantsRunning => ref.read(isStartProvider) || _resumeOnRestart;
+
+  /// The lost session gets no stop; work begun for the old run stops counting.
+  void onCoreLost() {
+    if (_startTime == null) {
+      return;
+    }
+    _resumeOnRestart = true;
+    _latestRunRequest = null;
+    _setLocalRunning(false);
+    ref.read(runningVpnOptionsProvider.notifier).value = null;
+  }
+
+  void resumeOnRestart() {
+    _resumeOnRestart = true;
   }
 
   Future<bool> setRunning(bool running, {bool initialize = false}) {
@@ -177,11 +238,14 @@ class SetupAction extends _$SetupAction {
       previousStartTime: _startTime,
     );
     _latestRunRequest = request;
+    _resumeOnRestart = false;
     _setLocalRunning(running);
-    if (request.initialize) {
-      globalState.needInitStatus = false;
+    final task = running ? _start(request) : _stop(request);
+    if (initialize || _initialRun != null && !ref.read(initProvider)) {
+      // The caller reports the outcome. Bootstrap waits for the transition to settle.
+      _initialRun = task.then<void>((_) {}, onError: (Object _) {});
     }
-    return running ? _start(request) : _stop(request);
+    return task;
   }
 
   Future<bool> _start(_RunRequest request) async {
@@ -192,8 +256,13 @@ class SetupAction extends _$SetupAction {
           force: !request.resume,
           preloadInvoke: () => _startCoreRunning(request),
         );
-      } catch (_) {
-        applied = false;
+      } catch (error) {
+        if (_isCurrent(request)) {
+          dialogs.showBanner(
+            userFacingErrorMessage(error, currentAppLocalizations),
+            level: BannerLevel.error,
+          );
+        }
       }
       if (!applied && _isCurrent(request)) {
         await globalState.safeRun(() => setRunning(false));
@@ -397,9 +466,7 @@ class SetupAction extends _$SetupAction {
 
   void applyIfGlobalRulesUsed() {
     final profile = ref.read(currentProfileProvider);
-    if (profile == null ||
-        profile.type == ProfileType.custom ||
-        profile.extendType != ExtendType.standard) {
+    if (profile == null || profile.type == ProfileType.custom) {
       return;
     }
     applyProfileDebounce(silence: true);
@@ -472,10 +539,21 @@ class SetupAction extends _$SetupAction {
     try {
       return await ref.read(coreActionProvider.notifier).restartCore();
     } catch (_) {
-      ref.read(authorizedTunEnableProvider.notifier).value =
-          TunAuthorizationState.none;
+      _forgetTunAuthorization();
       rethrow;
     }
+  }
+
+  /// A restart asks first, as [_setupConfig] would before handing off to it:
+  /// the apply inside the restart must not hand off to the restart it runs in.
+  /// Returns whether it was granted now.
+  Future<bool> _authorizeTunBeforeRestart() async {
+    return !await requestAdmin(ref.read(patchClashConfigProvider).tun.enable);
+  }
+
+  void _forgetTunAuthorization() {
+    ref.read(authorizedTunEnableProvider.notifier).value =
+        TunAuthorizationState.none;
   }
 
   /// With a base, [BuiltProfile.yaml] is only the overlay the Core applies.
@@ -485,7 +563,21 @@ class SetupAction extends _$SetupAction {
   }) async {
     final profileId = setupState.profileId;
     if (profileId == null) {
-      return (yaml: '', md5: '', counts: configCountsOf(const {}), base: null);
+      final yaml = await encodeYamlTask(
+        inboundConfigOf(
+          patchConfig,
+          authentication: ref
+              .read(networkSettingProvider)
+              .authentication
+              .credentials,
+        ),
+      );
+      return (
+        yaml: yaml,
+        md5: yaml.toMd5(),
+        counts: configCountsOf(const {}),
+        base: null,
+      );
     }
     final defaultUA = globalState.packageInfo.ua;
     final networkSetting = ref.read(
@@ -499,10 +591,7 @@ class SetupAction extends _$SetupAction {
     );
     final appendSystemDns = networkSetting.appendSystemDns;
     final isCustom = setupState.profileType == ProfileType.custom;
-    final scriptContent =
-        !isCustom && setupState.extendType == ExtendType.script
-        ? await setupState.script?.content
-        : null;
+    final scriptContent = isCustom ? null : await setupState.script?.content;
     final hasScript = scriptContent?.isNotEmpty == true;
     final profileBase = !isCustom && !hasScript
         ? await _core.getProfileBase(profileId)
@@ -522,6 +611,9 @@ class SetupAction extends _$SetupAction {
       rawConfig = await handleEvaluate(scriptContent!, rawConfig);
     }
     final directory = await appPath.profilesPath;
+    final hasCustomExit =
+        setupState.addedRules.any((rule) => rule.customExit) ||
+        setupState.mitmModules.isNotEmpty;
     final injected = await _resolveInjectedProviders(
       setupState,
       proxyGroups: proxyGroups,
@@ -539,15 +631,20 @@ class SetupAction extends _$SetupAction {
         realPatchConfig: patchConfig,
         overrides: setupState.overrides,
         bypassPrivateRoute: networkSetting.bypassPrivateRoute,
-        keepEmptyDnsOverrides: setupState.profileType != ProfileType.custom,
         appendSystemDns: appendSystemDns,
+        // sing-tun points the system resolver at the TUN by default with
+        // auto-route everywhere but macOS, where native does it through a
+        // dynamic store entry that configd drops when the Core exits.
+        defaultTunDnsMode: system.isMacOS ? 'native' : null,
         addedRules: setupState.addedRules,
         defaultUA: defaultUA,
         authentication: networkSetting.authentication.credentials,
-        matchTarget:
-            profileBase == null ||
-                setupState.matchTarget?.trim().isNotEmpty == true
-            ? setupState.matchTarget
+        exitTargets: setupState.exitTargets,
+        outboundNames: profileBase != null && hasCustomExit
+            ? await _outboundNamesOf(profileId, profileBase.base.digest)
+            : null,
+        defaultExitTarget: profileBase == null
+            ? null
             : lastMatchTarget(profileBase.base.matchRules),
         safeMode: ref.read(safeModeProvider),
         mitmModules: setupState.mitmModules,
@@ -567,6 +664,17 @@ class SetupAction extends _$SetupAction {
       ),
       base: SetupBase(path: path, overlay: res.yaml),
     );
+  }
+
+  Future<Set<String>> _outboundNamesOf(int profileId, String digest) async {
+    final cached = _outboundNames;
+    if (cached != null && cached.digest == digest) {
+      return cached.names;
+    }
+    final outbounds = await _core.getProfileOutbounds(profileId);
+    final names = outboundNamesOf(outbounds);
+    _outboundNames = (digest: digest, names: names);
+    return names;
   }
 
   /// Only what the custom profile actually references is injected, so an
@@ -821,6 +929,7 @@ class SetupAction extends _$SetupAction {
           rethrow;
         }
         globalState.lastConfigMd5 = yamlMd5;
+        ref.invalidate(activeRulesProvider);
         globalState.lastConfigCounts =
             realProfile?.counts ?? configCountsOf(const {});
         _appliedInputs = inputs;

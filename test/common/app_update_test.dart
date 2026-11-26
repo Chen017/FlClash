@@ -4,56 +4,72 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/app_update.dart';
+import 'package:fl_clash/common/release_asset.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('selfUpdateAssetSuffix', () {
+  String? nameOn(Abi abi, {required bool replaceable}) {
+    final asset = selfUpdateAssetFor(abi, replaceable: replaceable);
+    return asset == null ? null : updateAssetName('v0.9.4', asset);
+  }
+
+  group('selfUpdateAssetFor', () {
     test('names the APK built for the running ABI', () {
       expect(
-        selfUpdateAssetSuffix(Abi.androidArm64, windowsInstalled: false),
-        'android-arm64-v8a.apk',
+        nameOn(Abi.androidArm64, replaceable: false),
+        'FlClash-0.9.4-android-arm64.apk',
       );
       expect(
-        selfUpdateAssetSuffix(Abi.androidArm, windowsInstalled: false),
-        'android-armeabi-v7a.apk',
+        nameOn(Abi.androidArm, replaceable: false),
+        'FlClash-0.9.4-android-armv7.apk',
       );
       expect(
-        selfUpdateAssetSuffix(Abi.androidX64, windowsInstalled: false),
-        'android-x86_64.apk',
+        nameOn(Abi.androidX64, replaceable: false),
+        'FlClash-0.9.4-android-amd64.apk',
       );
     });
 
     test('names the Windows installer only for an installed build', () {
       expect(
-        selfUpdateAssetSuffix(Abi.windowsX64, windowsInstalled: true),
-        'windows-amd64-setup.exe',
+        nameOn(Abi.windowsX64, replaceable: true),
+        'FlClash-0.9.4-windows-amd64-setup.exe',
       );
       expect(
-        selfUpdateAssetSuffix(Abi.windowsArm64, windowsInstalled: true),
-        'windows-arm64-setup.exe',
+        nameOn(Abi.windowsArm64, replaceable: true),
+        'FlClash-0.9.4-windows-arm64-setup.exe',
       );
-      expect(
-        selfUpdateAssetSuffix(Abi.windowsX64, windowsInstalled: false),
-        isNull,
-      );
+      expect(nameOn(Abi.windowsX64, replaceable: false), isNull);
     });
 
-    test('leaves macOS and Linux to the release page', () {
-      for (final abi in [
-        Abi.macosArm64,
-        Abi.macosX64,
-        Abi.linuxX64,
-        Abi.linuxArm64,
-      ]) {
-        expect(selfUpdateAssetSuffix(abi, windowsInstalled: true), isNull);
+    test('names the macOS dmg only for a bundle the updater can replace', () {
+      expect(
+        nameOn(Abi.macosArm64, replaceable: true),
+        'FlClash-0.9.4-macos-arm64.dmg',
+      );
+      expect(
+        nameOn(Abi.macosX64, replaceable: true),
+        'FlClash-0.9.4-macos-amd64.dmg',
+      );
+      expect(nameOn(Abi.macosArm64, replaceable: false), isNull);
+    });
+
+    test('leaves Linux to the release page', () {
+      for (final abi in [Abi.linuxX64, Abi.linuxArm64]) {
+        expect(nameOn(abi, replaceable: true), isNull);
       }
     });
   });
 
-  test('releaseAssetName drops the tag prefix', () {
+  test('asks for the files a rebuild tag published', () {
+    final asset = selfUpdateAssetFor(Abi.androidArm64, replaceable: false)!;
+
     expect(
-      releaseAssetName('v0.9.3', 'android-arm64-v8a.apk'),
-      'FlClash-0.9.3-android-arm64-v8a.apk',
+      updateAssetName('v0.9.4-pre.1+2', asset),
+      'FlClash-0.9.4-pre.1.2-android-arm64.apk',
+    );
+    expect(
+      updateChecksumsName('v0.9.4-pre.1+2'),
+      'FlClash-0.9.4-pre.1.2-SHA256SUMS',
     );
   });
 
@@ -63,13 +79,10 @@ void main() {
 
     test('reads the entry sha256sum wrote for a file', () {
       final sums =
-          '$digest  ./FlClash-0.9.2-android-arm64-v8a.apk\n'
-          '${'0' * 64}  ./FlClash-0.9.2-windows-amd64-setup.exe\n';
+          '$digest  FlClash-0.9.5-android-arm64.apk\n'
+          '${'0' * 64}  FlClash-0.9.5-windows-amd64-setup.exe\n';
 
-      expect(
-        releaseChecksum(sums, 'FlClash-0.9.2-android-arm64-v8a.apk'),
-        digest,
-      );
+      expect(releaseChecksum(sums, 'FlClash-0.9.5-android-arm64.apk'), digest);
     });
 
     test('accepts the binary marker, upper case and CRLF', () {
@@ -79,7 +92,7 @@ void main() {
     });
 
     test('answers null for a file the listing does not name', () {
-      expect(releaseChecksum('$digest  ./other.apk\n', 'FlClash.apk'), isNull);
+      expect(releaseChecksum('$digest  other.apk\n', 'FlClash.apk'), isNull);
       expect(releaseChecksum('not a listing', 'FlClash.apk'), isNull);
     });
   });

@@ -1,9 +1,9 @@
 import 'dart:io';
 
+import 'package:fl_clash/common/app_localizations.dart';
 import 'package:fl_clash/core/core.dart';
 import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/manager/core_manager.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
@@ -32,7 +32,6 @@ const _nullProfileSetupState = SetupState(
   profileId: null,
   profileLastUpdateDate: null,
   profileType: ProfileType.file,
-  extendType: ExtendType.standard,
   rules: [],
   proxyGroups: [],
   addedRules: [],
@@ -75,6 +74,13 @@ class _ApplyRecordingSetupAction extends SetupAction {
   void applyProfileDebounce({bool silence = false, bool force = false}) {
     applies++;
   }
+}
+
+class _LostRecordingSetupAction extends SetupAction {
+  int lostCount = 0;
+
+  @override
+  void onCoreLost() => lostCount++;
 }
 
 _MockCoreHandlerInterface _coreInterface() {
@@ -148,7 +154,7 @@ void main() {
         options: CoreOptions(testUrl: ''),
       ),
     );
-    await AppLocalizations.load(const Locale('en'));
+    loadAppLocalizations(const Locale('en'));
     profileSwitchTempDir = Directory.systemTemp.createTempSync(
       'core_manager_test',
     );
@@ -214,6 +220,88 @@ void main() {
 
     expect(container.read(coreStatusProvider), CoreStatus.disconnected);
     expect(find.text('boom'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a crash ends the run here without telling the Core to stop', (
+    tester,
+  ) async {
+    final coreInterface = _coreInterface();
+    final setup = _LostRecordingSetupAction();
+    final container = await _pumpCoreManager(
+      tester,
+      coreInterface,
+      overrides: [setupActionProvider.overrideWith(() => setup)],
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+
+    coreEventManager.sendEvent(_crash);
+    await tester.pump();
+
+    expect(container.read(coreStatusProvider), CoreStatus.disconnected);
+    expect(setup.lostCount, 1);
+    verifyNever(() => coreInterface.stopListener());
+
+    await tester.pumpWidget(const SizedBox());
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
+
+  testWidgets('connections still open close once the core is gone', (
+    tester,
+  ) async {
+    final container = await _pumpCoreManager(tester, _coreInterface());
+    container.read(coreStatusProvider.notifier).value = CoreStatus.connected;
+    container
+        .read(requestsProvider.notifier)
+        .addRequest(
+          TrackerInfo(
+            id: 'a',
+            start: DateTime.utc(2026),
+            metadata: const Metadata(network: 'tcp', host: 'example.com'),
+            chains: const ['Proxy'],
+            rule: 'MATCH',
+            rulePayload: '',
+          ),
+        );
+    await tester.pump();
+    expect(container.read(requestsProvider).activeCount, 1);
+
+    container.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+    await tester.pump();
+
+    expect(container.read(requestsProvider).activeCount, 0);
+    expect(container.read(requestsProvider)['a']!.closedAt, isNotNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a connection whose dial failed is recorded closed when the '
+      'Core says', (tester) async {
+    final container = await _pumpCoreManager(tester, _coreInterface());
+
+    coreEventManager.sendEvent(
+      const CoreEvent(
+        type: CoreEventType.request,
+        data: {
+          'id': 'a',
+          'start': '2026-11-21T08:00:00Z',
+          'metadata': {'network': 'tcp', 'host': 'example.com'},
+          'chains': ['Proxy'],
+          'rule': 'Match',
+          'rulePayload': '',
+          'closedAt': '2026-11-21T08:00:00Z',
+          'failure': {'kind': 'timeout', 'message': 'i/o timeout'},
+        },
+      ),
+    );
+    await tester.pump();
+
+    final connection = container.read(requestsProvider)['a']!;
+    expect(connection.closedAt, DateTime.utc(2026, 11, 21, 8));
+    expect(connection.failure?.kind, ConnectionFailureKind.timeout);
+    expect(container.read(requestCountProvider), 1);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });

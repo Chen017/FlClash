@@ -3,6 +3,7 @@ import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/features/form/form.dart';
 import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
+import 'package:fl_clash/providers/mitm.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/views/config/on_demand.dart';
 import 'package:fl_clash/views/config/override.dart';
@@ -14,23 +15,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 part 'general/overrides.dart';
 part 'general/port_form.dart';
-
-class LogLevelItem extends ConsumerWidget {
-  const LogLevelItem({super.key});
-
-  @override
-  Widget build(BuildContext context, ref) {
-    return ConfigOptionsItem<LogLevel>(
-      title: (l) => l.logLevel,
-      options: LogLevel.values,
-      textBuilder: (logLevel) => logLevel.name,
-      selector: patchClashConfigProvider.select((state) => state.logLevel),
-      onChanged: (ref, value) => ref
-          .read(patchClashConfigProvider.notifier)
-          .update((state) => state.copyWith(logLevel: value)),
-    );
-  }
-}
 
 class UaItem extends ConsumerWidget {
   const UaItem({super.key});
@@ -101,6 +85,9 @@ class HostsItem extends ConsumerWidget {
     final hosts = ref.watch(
       patchClashConfigProvider.select((state) => state.hosts),
     );
+    final taken =
+        ref.watch(mitmTakeoverProvider).value?.hosts ??
+        const <String, String>{};
     return ListItem.open(
       title: const Text('Hosts'),
       subtitle: Text(
@@ -114,7 +101,13 @@ class HostsItem extends ConsumerWidget {
         keyMaxLength: TextInputLimits.domain,
         valueMaxLength: TextInputLimits.hostValue,
         titleBuilder: (item) => Text(item.key),
-        subtitleBuilder: (item) => Text(item.value),
+        subtitleBuilder: (item) => Text(
+          [
+            item.value,
+            if (taken[item.key] case final module?)
+              appLocalizations.mitmChangeReplacedBy(module),
+          ].join('\n'),
+        ),
       ),
       onChanged: (value) {
         if (value is! Map<String, String>) {
@@ -321,10 +314,12 @@ class GeneralView extends ConsumerWidget {
     return [
       const DelayTestTimeoutItem(),
       _clashToggle(
-        title: (l) => l.findProcessMode,
+        title: (l) => l.alwaysFindProcess,
         select: (state) => state.findProcessMode == FindProcessMode.always,
         update: (state, value) => state.copyWith(
-          findProcessMode: value ? FindProcessMode.always : FindProcessMode.off,
+          findProcessMode: value
+              ? FindProcessMode.always
+              : FindProcessMode.strict,
         ),
       ),
       _appSettingToggle(
@@ -348,11 +343,6 @@ class GeneralView extends ConsumerWidget {
         select: (state) => state.checkCertificate,
         update: (state, value) => state.copyWith(checkCertificate: value),
       ),
-      _appSettingToggle(
-        title: (l) => l.autoCheckUpdate,
-        select: (state) => state.autoCheckUpdate,
-        update: (state, value) => state.copyWith(autoCheckUpdate: value),
-      ),
     ];
   }
 
@@ -374,7 +364,6 @@ class GeneralView extends ConsumerWidget {
 
   List<Widget> _logItems() {
     return [
-      const LogLevelItem(),
       _appSettingToggle(
         title: (l) => l.logcat,
         select: (state) => state.openLogs,
@@ -397,7 +386,7 @@ class GeneralView extends ConsumerWidget {
     return BaseScaffold(
       title: appLocalizations.general,
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+        padding: context.listInsets.page().copyWith(
           top: context.sectionsTopPadding,
           bottom: 16 + context.bottomInset,
         ),
@@ -408,7 +397,7 @@ class GeneralView extends ConsumerWidget {
             footer: appLocalizations.autoRunDesc,
           ),
           generateSection(
-            title: appLocalizations.requestsAndUpdates,
+            title: appLocalizations.requests,
             items: _requestItems(),
             footer: appLocalizations.checkCertificateDesc,
           ),
@@ -433,6 +422,7 @@ class GeneralView extends ConsumerWidget {
             title: appLocalizations.logsAndDiagnostics,
             items: _logItems(),
             footer: appLocalizations.logcatDesc,
+            last: true,
           ),
         ],
       ),

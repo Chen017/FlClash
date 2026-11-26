@@ -1,4 +1,5 @@
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/common.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
@@ -232,14 +233,12 @@ abstract class EditViewState<W extends ConsumerStatefulWidget, T>
             illustration: NullStatusIllustration.data,
           ),
           child: PrismReorderableListView(
-            padding: EdgeInsets.only(
-              bottom: 16 + context.bottomInset,
+            padding: context.listInsets.page(
               top: context.contentTopPadding,
-              left: 16,
-              right: 16,
+              bottom: 16 + context.bottomInset,
             ),
             itemCount: _entries.length,
-            footer: description == null ? null : ListFooter(text: description!),
+            footer: description,
             itemBuilder: (context, index) {
               final entry = _entries[index];
               return _buildEntry(
@@ -280,9 +279,11 @@ class ConfigListEditItem extends ConsumerWidget {
     required this.onChanged,
     this.itemMaxLength,
     this.itemValidator,
+    this.itemSubtitle,
     this.description,
     this.subtitle,
     this.leading,
+    this.enabled = true,
   });
 
   final ProviderListenable<List<String>> selector;
@@ -290,9 +291,12 @@ class ConfigListEditItem extends ConsumerWidget {
   final ConfigWriter<List<String>> onChanged;
   final int? itemMaxLength;
   final ConfigValidator? itemValidator;
+  final String? Function(String item, AppLocalizations appLocalizations)?
+  itemSubtitle;
   final ConfigLabel? description;
   final ConfigLabel? subtitle;
   final Widget? leading;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -301,7 +305,9 @@ class ConfigListEditItem extends ConsumerWidget {
     final subtitle = this.subtitle;
     final label = title(appLocalizations);
     final itemValidator = this.itemValidator;
+    final itemSubtitle = this.itemSubtitle;
     return ListItem.open(
+      enabled: enabled,
       leading: leading,
       title: Text(label),
       subtitle: Text(
@@ -320,6 +326,12 @@ class ConfigListEditItem extends ConsumerWidget {
             ? null
             : (item) => itemValidator(item, appLocalizations),
         titleBuilder: (item) => Text(item),
+        subtitleBuilder: itemSubtitle == null
+            ? null
+            : (item) => switch (itemSubtitle(item, appLocalizations)) {
+                final text? => Text(text),
+                null => null,
+              },
       ),
       onChanged: (items) {
         if (items is! List) {
@@ -339,6 +351,7 @@ class ListEditView extends ConsumerStatefulWidget {
   final String? description;
   final List<String> items;
   final Widget Function(String item) titleBuilder;
+  final Widget? Function(String item)? subtitleBuilder;
   final int? itemMaxLength;
   final String? Function(String item)? itemValidator;
 
@@ -348,6 +361,7 @@ class ListEditView extends ConsumerStatefulWidget {
     this.description,
     required this.items,
     required this.titleBuilder,
+    this.subtitleBuilder,
     this.itemMaxLength,
     this.itemValidator,
   });
@@ -377,7 +391,7 @@ class _ListEditViewState extends EditViewState<ListEditView, String> {
     if (widget.itemValidator?.call(entry) case final error?) {
       return Text(error, style: TextStyle(color: context.colorScheme.error));
     }
-    return null;
+    return widget.subtitleBuilder?.call(entry);
   }
 
   @override

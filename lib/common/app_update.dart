@@ -1,17 +1,18 @@
-import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:fl_clash/common/common.dart';
+import 'package:fl_clash/common/macos_update.dart';
+import 'package:fl_clash/common/release_asset.dart';
+import 'package:fl_clash/common/release_version.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:path/path.dart';
-
-const releaseChecksumsName = 'SHA256SUMS';
+import 'package:url_launcher/url_launcher.dart';
 
 sealed class UpdateDownload {
   const UpdateDownload(this.tag);
@@ -35,44 +36,68 @@ final class UpdateReady extends UpdateDownload {
 }
 
 @visibleForTesting
-String? Function() resolveSelfUpdateSuffix = () => selfUpdateAssetSuffix(
+SelfUpdateAsset? Function() resolveSelfUpdateAsset = () => selfUpdateAssetFor(
   Abi.current(),
-  windowsInstalled: system.isWindows && isInstalledWindowsBuild,
+  replaceable: system.isWindows
+      ? isInstalledWindowsBuild
+      : macosAppUpdate?.canReplace ?? false,
 );
 
-String? get selfUpdateSuffix => resolveSelfUpdateSuffix();
+final MacosAppUpdate? macosAppUpdate = switch (system.isMacOS
+    ? appBundleOf(Platform.resolvedExecutable)
+    : null) {
+  final bundle? => MacosAppUpdate(bundle),
+  null => null,
+};
 
-// The names follow the release matrix in .github/workflows/build.yaml.
-String? selfUpdateAssetSuffix(Abi abi, {required bool windowsInstalled}) {
-  return switch (abi) {
-    Abi.androidArm64 => 'android-arm64-v8a.apk',
-    Abi.androidArm => 'android-armeabi-v7a.apk',
-    Abi.androidX64 => 'android-x86_64.apk',
-    Abi.windowsX64 when windowsInstalled => 'windows-amd64-setup.exe',
-    Abi.windowsArm64 when windowsInstalled => 'windows-arm64-setup.exe',
-    _ => null,
-  };
+Future<String> get macosInstallFailurePath async {
+  return join(await appPath.updateDirPath, 'install-failed');
 }
 
-String releaseAssetName(String tag, String suffix) {
-  final version = tag.startsWith('v') ? tag.substring(1) : tag;
-  return '$appName-$version-$suffix';
+SelfUpdateAsset? get selfUpdateAsset => resolveSelfUpdateAsset();
+
+@visibleForTesting
+Future<bool> Function(Uri uri) launchReleasePage = launchUrl;
+
+const appReleaseLine = ReleaseLine.dev;
+
+const _builtReleaseTag = String.fromEnvironment('RELEASE_TAG');
+
+/// A prerelease build carries only `X.Y.Z` as its version name, so the tag
+/// tool/package.dart writes into env.json is what tells it apart.
+ReleaseVersion installedReleaseVersion(
+  String packageVersion, {
+  String builtTag = _builtReleaseTag,
+}) {
+  return ReleaseVersion.tryParse(builtTag) ??
+      ReleaseVersion.tryParse(packageVersion) ??
+      const ReleaseVersion(0, 0, 0);
+}
+
+/// About names a prerelease by its tag, which its version name leaves out.
+String installedVersionLabel(
+  String packageVersion, {
+  String builtTag = _builtReleaseTag,
+}) => ReleaseVersion.tryParse(builtTag)?.toString() ?? 'v$packageVersion';
+
+/// The installed version as the update card sets it beside a tag without its
+/// leading `v`.
+String installedVersionName(
+  String packageVersion, {
+  String builtTag = _builtReleaseTag,
+}) => installedVersionLabel(
+  packageVersion,
+  builtTag: builtTag,
+).replaceFirst(RegExp('^v'), '');
+
+Future<bool> openReleasePage(String tag) {
+  return launchReleasePage(
+    Uri.https('github.com', '/$repository/releases/tag/$tag'),
+  );
 }
 
 Uri releaseAssetUri(String tag, String name) {
   return Uri.https('github.com', '/$repository/releases/download/$tag/$name');
-}
-
-final _checksumLine = RegExp(r'^([0-9a-fA-F]{64}) [ *](?:\./)?(.+)$');
-
-String? releaseChecksum(String sums, String name) {
-  for (final line in const LineSplitter().convert(sums)) {
-    final match = _checksumLine.firstMatch(line.trim());
-    if (match != null && match[2] == name) {
-      return match[1]!.toLowerCase();
-    }
-  }
-  return null;
 }
 
 Future<String> fileSha256(String path) {

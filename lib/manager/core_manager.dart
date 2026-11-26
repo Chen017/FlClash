@@ -72,7 +72,7 @@ class _CoreContainerState extends ConsumerState<CoreManager>
       },
     );
     ref.listenManual(mitmModulesProvider, (prev, next) {
-      if (mitmFeature &&
+      if (rsFeature &&
           prev?.value != null &&
           next.hasValue &&
           ref.read(patchClashConfigProvider).mitm.enable) {
@@ -93,6 +93,9 @@ class _CoreContainerState extends ConsumerState<CoreManager>
     ref.listenManual(coreStatusProvider, (prev, next) {
       if (next == CoreStatus.connected && prev != CoreStatus.connected) {
         _syncLogStream();
+      }
+      if (prev == CoreStatus.connected && next != CoreStatus.connected) {
+        ref.read(requestsProvider.notifier).closeAll();
       }
     }, fireImmediately: true);
   }
@@ -166,6 +169,12 @@ class _CoreContainerState extends ConsumerState<CoreManager>
   }
 
   @override
+  void onRequestsClosed(Set<String> ids) {
+    ref.read(requestsProvider.notifier).close(ids);
+    super.onRequestsClosed(ids);
+  }
+
+  @override
   void onDns(DnsQuery dnsQuery) {
     ref.read(dnsQueriesProvider.notifier).addQuery(dnsQuery);
     ref.read(dnsQueryCountProvider.notifier).update((count) => count + 1);
@@ -194,6 +203,8 @@ class _CoreContainerState extends ConsumerState<CoreManager>
       return;
     }
     ref.read(coreStatusProvider.notifier).value = CoreStatus.disconnected;
+    ref.read(coreStopReasonProvider.notifier).value = message;
+    ref.read(setupActionProvider.notifier).onCoreLost();
     if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       dialogs.showBanner(message, level: BannerLevel.error);
     }

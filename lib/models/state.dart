@@ -113,6 +113,7 @@ abstract class ProxyState with _$ProxyState {
     required bool systemProxy,
     required List<String> bassDomain,
     required int port,
+    String? pacScript,
   }) = _ProxyState;
 }
 
@@ -131,6 +132,7 @@ abstract class SystemProxySelectorState with _$SystemProxySelectorState {
   const factory SystemProxySelectorState({
     required bool systemProxy,
     required List<String> bypassDomain,
+    String? pacScript,
   }) = _SystemProxySelectorState;
 }
 
@@ -171,6 +173,7 @@ abstract class SharedState with _$SharedState {
     required String stopText,
     required bool onlyStatisticsProxy,
     @Default(true) bool showStopAction,
+    @Default(false) bool mitm,
   }) = _SharedState;
 
   factory SharedState.fromJson(Map<String, Object?> json) =>
@@ -201,10 +204,8 @@ abstract class MakeRealProfileState with _$MakeRealProfileState {
     required PatchClashConfig realPatchConfig,
     @Default(ProfileOverrides()) ProfileOverrides overrides,
     @Default(false) bool bypassPrivateRoute,
-
-    /// Set for a subscription, whose own DNS values an emptied entry replaces.
-    @Default(false) bool keepEmptyDnsOverrides,
     required bool appendSystemDns,
+    String? defaultTunDnsMode,
     required List<ProxyGroup> proxyGroups,
     required List<Rule> rules,
     required List<Rule> addedRules,
@@ -212,7 +213,11 @@ abstract class MakeRealProfileState with _$MakeRealProfileState {
     @Default([]) List<String> authentication,
     @Default({}) Map<String, dynamic> injectedProxyProviders,
     @Default({}) Map<String, dynamic> injectedRuleProviders,
-    String? matchTarget,
+    @Default({}) Map<String, String> exitTargets,
+
+    /// The profile's own outbounds when [rawConfig] does not carry them.
+    Set<String>? outboundNames,
+    String? defaultExitTarget,
     @Default(false) bool safeMode,
     @Default([]) List<MitmModuleSource> mitmModules,
   }) = _MakeRealProfileState;
@@ -250,7 +255,6 @@ abstract class SetupState with _$SetupState {
     required int? profileId,
     required int? profileLastUpdateDate,
     required ProfileType profileType,
-    required ExtendType extendType,
     required List<Rule> rules,
     required List<ProxyGroup> proxyGroups,
     required List<Rule> addedRules,
@@ -260,7 +264,7 @@ abstract class SetupState with _$SetupState {
     @Default({}) Map<String, int> profileProviders,
     @Default([]) List<CustomProxy> appProxies,
     @Default({}) Map<int, String> proxyDialers,
-    String? matchTarget,
+    @Default({}) Map<String, String> exitTargets,
     @Default([]) List<MitmModuleSource> mitmModules,
   }) = _SetupState;
 }

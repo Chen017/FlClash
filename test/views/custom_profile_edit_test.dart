@@ -3,7 +3,6 @@ import 'package:fl_clash/core/controller.dart';
 import 'package:fl_clash/core/interface.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/features/form/form.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/state.dart';
@@ -154,7 +153,7 @@ void main() {
   late _MockCore core;
 
   setUpAll(() async {
-    await AppLocalizations.load(const Locale('en'));
+    loadAppLocalizations(const Locale('en'));
     registerFallbackValue(<String>[]);
   });
 
@@ -449,14 +448,16 @@ void main() {
       await tester.tap(
         find.descendant(
           of: picker,
-          matching: find.textContaining('${l.filters} ('),
+          matching: find.textContaining(
+            RegExp('^${RegExp.escape(l.filters)} \\d+\$'),
+          ),
         ),
       );
       await tester.pumpAndSettle();
       for (final header in [
-        '${l.basicStrategy} (5)',
-        '${l.localProxies} (1)',
-        '${l.proxyProviders} (1)',
+        '${l.basicStrategy} 5',
+        '${l.localProxies} 1',
+        '${l.proxyProviders} 1',
       ]) {
         await tester.tap(offered(header));
         await tester.pumpAndSettle();
@@ -529,10 +530,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l.addNodes));
       await tester.pumpAndSettle();
-      for (final header in [
-        '${l.autoInclude} (2)',
-        '${l.proxyProviders} (1)',
-      ]) {
+      for (final header in ['${l.autoInclude} 2', '${l.proxyProviders} 1']) {
         await tester.tap(offered(header));
         await tester.pumpAndSettle();
       }
@@ -556,14 +554,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l.addNodes));
       await tester.pumpAndSettle();
-      await tester.tap(offered('${l.localProxies} (1)'));
+      await tester.tap(offered('${l.localProxies} 1'));
       await tester.pumpAndSettle();
       expect(offered('Home'), findsOneWidget);
       for (final section in [l.autoInclude, l.proxyProviders]) {
         expect(
           find.descendant(
             of: picker,
-            matching: find.textContaining('$section ('),
+            matching: find.textContaining(
+              RegExp('^${RegExp.escape(section)} \\d+\$'),
+            ),
           ),
           findsNothing,
         );
@@ -600,7 +600,9 @@ void main() {
       await tester.tap(
         find.descendant(
           of: picker,
-          matching: find.textContaining('${l.excludeFilter} ('),
+          matching: find.textContaining(
+            RegExp('^${RegExp.escape(l.excludeFilter)} \\d+\$'),
+          ),
         ),
       );
       await tester.pumpAndSettle();

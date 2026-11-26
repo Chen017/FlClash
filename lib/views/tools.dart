@@ -26,6 +26,20 @@ class ToolsView extends ConsumerStatefulWidget {
 }
 
 class _ToolViewState extends ConsumerState<ToolsView> {
+  late final ScrollController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = sheetScrollController(context);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   Widget _buildNavigationMenuItem(NavigationItem navigationItem) {
     return ListItem.open(
       leading: GlyphIcon(navigationItem.glyph),
@@ -86,11 +100,10 @@ class _ToolViewState extends ConsumerState<ToolsView> {
       body: Builder(
         builder: (context) => PrismListView(
           key: toolsStoreKey,
+          controller: _controller,
           itemCount: items.length,
           itemBuilder: (_, index) => items[index],
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
+          padding: context.listInsets.page(
             top: context.sectionsTopPadding,
             bottom: 20 + context.bottomInset,
           ),
@@ -117,14 +130,18 @@ class _LocaleItem extends ConsumerWidget {
     return ListItem<Locale?>.options(
       leading: const GlyphIcon(AppGlyphs.language),
       title: Text(context.appLocalizations.language),
-      options: [null, ...AppLocalizations.delegate.supportedLocales],
+      options: [null, ...AppLocalizations.supportedLocales],
       onChanged: (Locale? locale) {
         ref
             .read(appSettingProvider.notifier)
             .update((state) => state.copyWith(locale: locale?.toString()));
       },
       textBuilder: (locale) => _getLocaleString(context, locale),
-      value: currentLocale,
+      value: currentLocale == null
+          ? null
+          : basicLocaleListResolution([
+              currentLocale,
+            ], AppLocalizations.supportedLocales),
     );
   }
 }

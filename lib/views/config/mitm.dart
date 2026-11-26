@@ -10,10 +10,9 @@ import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/plugins/app.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
-import 'package:fl_clash/providers/database.dart';
 import 'package:fl_clash/providers/mitm.dart';
 import 'package:fl_clash/state.dart';
-import 'package:fl_clash/views/config/mitm_modules.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,16 +39,17 @@ Future<bool> _generateCertificate(MitmCa ca, String title) async {
   return res == true;
 }
 
-class MitmView extends ConsumerStatefulWidget {
-  const MitmView({super.key, required this.isAndroid});
+class MitmOptionsView extends ConsumerStatefulWidget {
+  const MitmOptionsView({super.key, required this.isAndroid});
 
   final bool isAndroid;
 
   @override
-  ConsumerState<MitmView> createState() => _MitmViewState();
+  ConsumerState<MitmOptionsView> createState() => _MitmOptionsViewState();
 }
 
-class _MitmViewState extends ConsumerState<MitmView> {
+class _MitmOptionsViewState extends ConsumerState<MitmOptionsView>
+    with RouteSettledMixin<MitmOptionsView> {
   late final AppLifecycleListener _lifecycle;
 
   bool get isAndroid => widget.isAndroid;
@@ -59,8 +59,16 @@ class _MitmViewState extends ConsumerState<MitmView> {
     super.initState();
     // The user may come back from installing the certificate in Settings.
     _lifecycle = AppLifecycleListener(onResume: _checkTrust);
-    _checkTrust();
   }
+
+  @override
+  void didSettleRoute() => unawaited(
+    whenNothingAnimates().then((_) {
+      if (mounted) {
+        _checkTrust();
+      }
+    }),
+  );
 
   @override
   void dispose() {
@@ -111,6 +119,8 @@ class _MitmViewState extends ConsumerState<MitmView> {
         appLocalizations.mitmCertutilMissing(command)
       else if (check?.missingStores case final stores? when stores.isNotEmpty)
         appLocalizations.mitmMissingStores(stores.toSet().join(', ')),
+      if (check?.untrustedStores case final stores? when stores.isNotEmpty)
+        appLocalizations.mitmUntrustedStores(stores.toSet().join(', ')),
       if (system.isLinux) appLocalizations.mitmCertificateLinuxTip,
     ];
     return lines.isEmpty ? null : lines.join('\n');
@@ -118,17 +128,82 @@ class _MitmViewState extends ConsumerState<MitmView> {
 
   Future<void> _showDetails(
     BuildContext context,
+    WidgetRef ref,
+    MitmCertificate certificate, {
+    required bool removable,
+  }) async {
+    final appLocalizations = context.appLocalizations;
+    final title = certificate.subject;
+    final message = TextSpan(
+      text: [
+        appLocalizations.validUntil(certificate.notAfter.show),
+        'SHA-256\n${certificate.fingerprint}',
+      ].join('\n\n'),
+    );
+    if (!removable) {
+      await dialogs.showAlert(title: title, message: message);
+      return;
+    }
+    final remove = await dialogs.showMessage(
+      title: title,
+      message: message,
+      cancelText: appLocalizations.close,
+      confirmText: appLocalizations.removeCertificate,
+      destructive: true,
+    );
+    if (remove == true && context.mounted) {
+      await _remove(context, ref, certificate);
+    }
+  }
+
+  Future<void> _remove(
+    BuildContext context,
+    WidgetRef ref,
     MitmCertificate certificate,
   ) async {
-    await dialogs.showAlert(
-      title: certificate.subject,
-      message: TextSpan(
-        text: [
-          context.appLocalizations.validUntil(certificate.notAfter.show),
-          'SHA-256\n${certificate.fingerprint}',
-        ].join('\n\n'),
-      ),
+    final appLocalizations = context.appLocalizations;
+    final outcome = await globalState.loadingRun<MitmRemoveOutcome?>(
+      ref.read(mitmTrustStateProvider.notifier).remove,
+      tag: LoadingTag.mitm,
+      title: appLocalizations.removeCertificate,
     );
+    if (!context.mounted) {
+      return;
+    }
+    switch (outcome) {
+      case MitmRemoveOutcome.removed:
+        dialogs.showBanner(
+          appLocalizations.removeCertificateSuccess,
+          level: BannerLevel.success,
+        );
+      case MitmRemoveOutcome.userStore:
+        final open = await dialogs.showMessage(
+          title: appLocalizations.mitmRemoveInSettings,
+          message: TextSpan(
+            text: appLocalizations.mitmRemoveUserCertificateTip(
+              certificate.subject,
+            ),
+          ),
+          confirmText: appLocalizations.openSettings,
+        );
+        if (open == true) {
+          await app?.openCertificateSettings(userCredentials: true);
+        }
+      case MitmRemoveOutcome.needsRoot:
+        await dialogs.showAlert(
+          title: appLocalizations.mitmCannotRemove,
+          message: TextSpan(
+            text: appLocalizations.mitmRemoveSystemCertificateTip,
+          ),
+        );
+      case MitmRemoveOutcome.failed:
+        dialogs.showBanner(
+          appLocalizations.mitmSystemStoreRemoveFailed,
+          level: BannerLevel.error,
+        );
+      case null:
+        break;
+    }
   }
 
   Future<bool> _confirmAndroidInstall(
@@ -289,6 +364,22 @@ class _MitmViewState extends ConsumerState<MitmView> {
     }
   }
 
+  Widget _trustGlyph(
+    BuildContext context, {
+    required MitmCertificate? certificate,
+    required AsyncValue<MitmTrustCheck> trust,
+  }) {
+    final colorScheme = context.colorScheme;
+    final color = certificate == null
+        ? colorScheme.onSurfaceVariant
+        : trust.value?.trust == MitmTrust.ready
+        ? colorScheme.success
+        : trust.hasError
+        ? colorScheme.error
+        : colorScheme.onSurfaceVariant;
+    return GlyphIcon(AppGlyphs.certificate, size: 32, color: color);
+  }
+
   List<Widget> _certificateItems(
     BuildContext context,
     WidgetRef ref,
@@ -297,10 +388,17 @@ class _MitmViewState extends ConsumerState<MitmView> {
   }) {
     final appLocalizations = context.appLocalizations;
     final certificate = state.value;
+    final trust = ref.watch(mitmTrustStateProvider);
+    final leading = _trustGlyph(
+      context,
+      certificate: certificate,
+      trust: trust,
+    );
     if (certificate == null) {
       final error = state.error;
       return [
         ListItem(
+          leading: leading,
           title: Text(appLocalizations.generateCertificate),
           subtitle: error == null ? null : Text(compactError(error)),
           onTap: () => _generateCertificate(
@@ -310,7 +408,6 @@ class _MitmViewState extends ConsumerState<MitmView> {
         ),
       ];
     }
-    final trust = ref.watch(mitmTrustStateProvider);
     final installable = switch (trust.value) {
       MitmTrustCheck(trust: MitmTrust.notInstalled || MitmTrust.untrusted) =>
         canTrust,
@@ -323,26 +420,42 @@ class _MitmViewState extends ConsumerState<MitmView> {
       _ => false,
     };
     return [
-      ListItem(
-        title: Text(certificate.subject),
-        subtitle: Text(_trustLabel(appLocalizations, trust)),
-        onTap: () => _showDetails(context, certificate),
-      ),
-      if (installable)
-        ListItem(
-          title: Text(
-            trust.value?.trust == MitmTrust.untrusted
-                ? appLocalizations.trustCertificate
-                : appLocalizations.installCertificate,
+      ContextMenuRegion(
+        menuItems: [
+          PopupMenuItem(
+            glyph: AppGlyphs.export,
+            label: appLocalizations.exportCertificate,
+            onPressed: () => _export(context, certificate),
           ),
-          onTap: () => _install(context, ref),
+        ],
+        child: ListItem(
+          leading: leading,
+          title: Text(certificate.subject),
+          subtitle: Text(_trustLabel(appLocalizations, trust)),
+          onTap: () {
+            if (installable) {
+              _install(context, ref);
+            } else if (!canTrust) {
+              _export(context, certificate);
+            } else {
+              _showDetails(
+                context,
+                ref,
+                certificate,
+                removable: switch (trust.value?.trust) {
+                  MitmTrust.ready || MitmTrust.untrusted => true,
+                  _ => false,
+                },
+              );
+            }
+          },
         ),
-      ListItem(
-        title: Text(appLocalizations.exportCertificate),
-        onTap: () => _export(context, certificate),
       ),
       ListItem(
-        title: Text(appLocalizations.regenerateCertificate),
+        title: Text(
+          appLocalizations.regenerateCertificate,
+          style: TextStyle(color: context.colorScheme.error),
+        ),
         onTap: () =>
             _regenerate(context, ref, old: certificate, canTrust: canTrust),
       ),
@@ -360,105 +473,69 @@ class _MitmViewState extends ConsumerState<MitmView> {
         ? null
         : ref.watch(mitmTrustStateProvider).value;
     return Scaffold(
-      title: appLocalizations.mitm,
+      title: appLocalizations.options,
       isLoading: ref.watch(loadingProvider(LoadingTag.mitm)),
       body: NullStatusSwitcher(
         isLoading: certificate.isLoading && !certificate.hasValue,
-        child: CustomScrollView(
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
-                top: context.contentTopPadding,
-                bottom: 16 + context.bottomInset,
+        child: ListView(
+          padding: context.listInsets.page().copyWith(
+            top: context.contentTopPadding,
+            bottom: 16 + context.bottomInset,
+          ),
+          children: [
+            generateSection(
+              items: _certificateItems(
+                context,
+                ref,
+                certificate,
+                canTrust: canTrust,
               ),
-              sliver: SliverMainAxisGroup(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        generateSection(
-                          items: [
-                            const _MitmEnableItem(),
-                            _MitmCaptureItem(isAndroid: isAndroid),
-                          ],
-                        ),
-                        generateSection(
-                          title: appLocalizations.certificate,
-                          items: _certificateItems(
-                            context,
-                            ref,
-                            certificate,
-                            canTrust: canTrust,
-                          ),
-                          footer: _certificateTip(
-                            appLocalizations,
-                            canTrust: canTrust,
-                            check: check,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        generateSection(
-                          title: appLocalizations.mitmModules,
-                          items: const [MitmModulesItem()],
-                        ),
-                        generateSection(
-                          items: const [_MitmHostnameItem()],
-                          footer: appLocalizations.mitmHostnameDesc,
-                        ),
-                        generateSection(
-                          title: appLocalizations.options,
-                          items: [
-                            ConfigToggleItem(
-                              title: (l) => l.skipServerCertVerify,
-                              selector: patchClashConfigProvider.select(
-                                (state) => state.mitm.skipServerCertVerify,
-                              ),
-                              onChanged: _mitmWriter(
-                                (state, value) =>
-                                    state.copyWith(skipServerCertVerify: value),
-                              ),
-                            ),
-                            ConfigToggleItem(
-                              title: (l) => l.blockQuic,
-                              selector: patchClashConfigProvider.select(
-                                (state) => state.mitm.autoQuicBlock,
-                              ),
-                              onChanged: _mitmWriter(
-                                (state, value) =>
-                                    state.copyWith(autoQuicBlock: value),
-                              ),
-                            ),
-                            ConfigToggleItem(
-                              title: (l) => l.http2,
-                              selector: patchClashConfigProvider.select(
-                                (state) => state.mitm.h2,
-                              ),
-                              onChanged: _mitmWriter(
-                                (state, value) => state.copyWith(h2: value),
-                              ),
-                            ),
-                            ConfigToggleItem(
-                              title: (l) => l.decryptUntrusted,
-                              selector: patchClashConfigProvider.select(
-                                (state) => state.mitm.decryptUntrusted,
-                              ),
-                              onChanged: _mitmWriter(
-                                (state, value) =>
-                                    state.copyWith(decryptUntrusted: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              footer: _certificateTip(
+                appLocalizations,
+                canTrust: canTrust,
+                check: check,
               ),
+            ),
+            generateSection(
+              items: [
+                ConfigToggleItem(
+                  title: (l) => l.skipServerCertVerify,
+                  selector: patchClashConfigProvider.select(
+                    (state) => state.mitm.skipServerCertVerify,
+                  ),
+                  onChanged: _mitmWriter(
+                    (state, value) =>
+                        state.copyWith(skipServerCertVerify: value),
+                  ),
+                ),
+                ConfigToggleItem(
+                  title: (l) => l.blockQuic,
+                  selector: patchClashConfigProvider.select(
+                    (state) => state.mitm.autoQuicBlock,
+                  ),
+                  onChanged: _mitmWriter(
+                    (state, value) => state.copyWith(autoQuicBlock: value),
+                  ),
+                ),
+                ConfigToggleItem(
+                  title: (l) => l.http2,
+                  selector: patchClashConfigProvider.select(
+                    (state) => state.mitm.h2,
+                  ),
+                  onChanged: _mitmWriter(
+                    (state, value) => state.copyWith(h2: value),
+                  ),
+                ),
+                ConfigToggleItem(
+                  title: (l) => l.decryptUntrusted,
+                  selector: patchClashConfigProvider.select(
+                    (state) => state.mitm.decryptUntrusted,
+                  ),
+                  onChanged: _mitmWriter(
+                    (state, value) => state.copyWith(decryptUntrusted: value),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -467,8 +544,8 @@ class _MitmViewState extends ConsumerState<MitmView> {
   }
 }
 
-class _MitmEnableItem extends ConsumerWidget {
-  const _MitmEnableItem();
+class MitmEnableItem extends ConsumerWidget {
+  const MitmEnableItem({super.key});
 
   Future<void> _handleChanged(
     BuildContext context,
@@ -479,7 +556,9 @@ class _MitmEnableItem extends ConsumerWidget {
     if (value) {
       final appLocalizations = context.appLocalizations;
       final ca = ref.read(mitmCaProvider.notifier);
-      final hasCertificate = ref.read(mitmCaProvider).value != null;
+      final hasCertificate = ref
+          .read(mitmCaProvider.future)
+          .then((ca) => ca != null, onError: (_) => false);
       final res = await dialogs.showMessage(
         title: appLocalizations.httpsDecryption,
         message: TextSpan(text: appLocalizations.mitmEnableTip),
@@ -487,7 +566,7 @@ class _MitmEnableItem extends ConsumerWidget {
       if (res != true) {
         return;
       }
-      if (!hasCertificate &&
+      if (!await hasCertificate &&
           !await _generateCertificate(
             ca,
             appLocalizations.generateCertificate,
@@ -506,6 +585,7 @@ class _MitmEnableItem extends ConsumerWidget {
       patchClashConfigProvider.select((state) => state.mitm.enable),
     );
     return ListItem.toggle(
+      leading: const GlyphIcon(AppGlyphs.lockOpen),
       title: Text(context.appLocalizations.httpsDecryption),
       value: enable,
       onChanged: (value) => _handleChanged(context, ref, value),
@@ -513,113 +593,8 @@ class _MitmEnableItem extends ConsumerWidget {
   }
 }
 
-class _MitmCaptureItem extends ConsumerWidget {
-  const _MitmCaptureItem({required this.isAndroid});
-
-  final bool isAndroid;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appLocalizations = context.appLocalizations;
-    final capture = ref.watch(
-      patchClashConfigProvider.select(
-        (state) => state.mitm.enable && state.mitm.capture,
-      ),
-    );
-    return ListItem.open(
-      title: Text(appLocalizations.httpCapture),
-      subtitle: Text(
-        capture ? appLocalizations.enabled : appLocalizations.disabled,
-      ),
-      widget: _MitmCaptureView(isAndroid: isAndroid),
-    );
-  }
-}
-
-class _MitmCaptureView extends ConsumerWidget {
-  const _MitmCaptureView({required this.isAndroid});
-
-  final bool isAndroid;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appLocalizations = context.appLocalizations;
-    final (enable, capture, limit) = ref.watch(
-      patchClashConfigProvider.select(
-        (state) => (
-          state.mitm.enable,
-          state.mitm.capture,
-          state.mitm.captureLimit(isAndroid: isAndroid),
-        ),
-      ),
-    );
-    final noHost = ref.watch(
-      patchClashConfigProvider.select(
-        (state) =>
-            state.mitm.enable &&
-            state.mitm.capture &&
-            state.mitm.hostname.every((line) => line.startsWith('-')),
-      ),
-    );
-    final hasModule = ref.watch(
-      mitmModulesProvider.select(
-        (state) => state.value?.any((module) => module.enabled) == true,
-      ),
-    );
-    final options = mitmCaptureOptions(isAndroid: isAndroid);
-    return Scaffold(
-      title: appLocalizations.httpCapture,
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
-          top: context.sectionsTopPadding,
-          bottom: 16 + context.bottomInset,
-        ),
-        children: [
-          generateSection(
-            items: [
-              ListItem.toggle(
-                title: Text(appLocalizations.httpCapture),
-                value: capture,
-                onChanged: enable
-                    ? (value) => _updateMitm(
-                        ref,
-                        (state) => state.copyWith(capture: value),
-                      )
-                    : null,
-              ),
-            ],
-            footer: noHost && !hasModule
-                ? appLocalizations.httpCaptureNoHosts
-                : appLocalizations.httpCaptureDesc,
-          ),
-          generateSection(
-            items: [
-              ListItem<int>.options(
-                title: Text(appLocalizations.httpCaptureLimit),
-                options: options.contains(limit)
-                    ? options
-                    : ([...options, limit]..sort()),
-                value: limit,
-                textBuilder: (value) => '$value',
-                onChanged: (value) => _updateMitm(
-                  ref,
-                  (state) => state.copyWith(captureEntries: value),
-                ),
-              ),
-            ],
-            footer: appLocalizations.httpCaptureLimitDesc(
-              mitmCaptureBytes(isAndroid: isAndroid).traffic.show,
-              mitmMaxBodySize(isAndroid: isAndroid).traffic.show,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MitmHostnameItem extends ConsumerWidget {
-  const _MitmHostnameItem();
+class MitmHostnameItem extends ConsumerWidget {
+  const MitmHostnameItem({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -629,6 +604,7 @@ class _MitmHostnameItem extends ConsumerWidget {
     );
     final invalid = ref.watch(mitmHostnameIssuesProvider).value?.length ?? 0;
     return ListItem.open(
+      leading: const GlyphIcon(AppGlyphs.target),
       title: Text(appLocalizations.hostname),
       subtitle: Text(switch ((count, invalid)) {
         (0, _) => appLocalizations.none,

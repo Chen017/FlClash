@@ -1,5 +1,7 @@
+import 'dart:async';
+
+import 'package:fl_clash/common/app_localizations.dart';
 import 'package:fl_clash/features/form/form.dart';
-import 'package:fl_clash/l10n/l10n.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/state.dart';
 import 'package:fl_clash/widgets/widgets.dart';
@@ -7,7 +9,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/test_app.dart';
-import 'package:prism_ui/prism_ui.dart';
 
 final _proxyTypes = {
   for (var i = 1; i <= sheetSearchMinItemCount; i++)
@@ -49,6 +50,60 @@ Future<List<String>> _pumpSheet(
 }
 
 void main() {
+  testWidgets('a list that loads late still opens on the selected item', (
+    tester,
+  ) async {
+    const view = Size(400, 300);
+    tester.view.physicalSize = view;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final loading = ValueNotifier(true);
+    addTearDown(loading.dispose);
+    final items = [
+      for (var i = 0; i < sheetSearchMinItemCount - 1; i++) 'Font $i',
+    ];
+    await tester.pumpWidget(
+      TestApp(
+        wrapInProviderScope: true,
+        overrides: [viewSizeProvider.overrideWithBuild((_, _) => view)],
+        child: const SizedBox.shrink(),
+      ),
+    );
+    unawaited(
+      globalState.navigatorKey.currentState!.push(
+        HostPageRoute<void>(
+          builder: (_) => SheetProvider(
+            type: SheetType.bottomSheet,
+            child: ValueListenableBuilder(
+              valueListenable: loading,
+              builder: (_, loading, _) => SelectionSheet<String>(
+                title: 'Font',
+                loadingStatus: loading
+                    ? const NullStatus(
+                        illustration: NullStatusIllustration.fonts,
+                      )
+                    : null,
+                sections: [if (!loading) SelectionSection(items: items)],
+                labelBuilder: (item) => item,
+                selectedOf: (_) => items.last,
+                onSelected: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    loading.value = false;
+    await tester.pump();
+    await tester.pump(minimumLoadingDuration);
+    await tester.pumpAndSettle();
+
+    expect(find.text(items.last), findsOneWidget);
+    expect(find.text(items.first), findsNothing);
+  });
+
   testWidgets('a short list has no search field', (tester) async {
     await _pumpSheet(tester, proxies: ['Node 1']);
 
@@ -142,10 +197,10 @@ void main() {
     await tester.enterText(find.byType(TextField), 'missing');
     await tester.pumpAndSettle();
 
-    expect(find.text(AppLocalizations.current.noSearchResults), findsOneWidget);
+    expect(find.text(currentAppLocalizations.noSearchResults), findsOneWidget);
     expect(find.byType(SearchField), findsOneWidget);
 
-    await tester.tap(find.byTooltip(AppLocalizations.current.clearSearch));
+    await tester.tap(find.byTooltip(currentAppLocalizations.clearSearch));
     await tester.pumpAndSettle();
     expect(find.text('Node 1'), findsOneWidget);
   });

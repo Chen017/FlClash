@@ -37,6 +37,8 @@ internal interface ServiceStateHost {
 
     fun updateNotificationParams(params: NotificationParams)
 
+    fun updateMitm(enabled: Boolean)
+
     fun loadSharedState(): SharedState
 
     fun isVpnPermissionGranted(): Boolean
@@ -47,7 +49,7 @@ internal interface ServiceStateHost {
 
     fun app(): AppGateway?
 
-    fun notifyStopped()
+    fun notifyStopped(failure: StartFailure? = null)
 
     suspend fun quickSetup(initParams: String, setupParams: String): Result<String>
 
@@ -103,6 +105,8 @@ internal object AndroidServiceStateHost : ServiceStateHost {
     override fun updateNotificationParams(params: NotificationParams) =
         ServiceConfig.updateNotificationParams(params)
 
+    override fun updateMitm(enabled: Boolean) = ServiceConfig.updateMitm(enabled)
+
     override fun loadSharedState(): SharedState = GlobalState.application.sharedState
 
     override fun isVpnPermissionGranted(): Boolean =
@@ -135,8 +139,8 @@ internal object AndroidServiceStateHost : ServiceStateHost {
         }
     }
 
-    override fun notifyStopped() {
-        flutterEngine?.plugin<ServicePlugin>()?.notifyStopped()
+    override fun notifyStopped(failure: StartFailure?) {
+        flutterEngine?.plugin<ServicePlugin>()?.notifyStopped(failure)
     }
 
     override suspend fun quickSetup(initParams: String, setupParams: String): Result<String> =

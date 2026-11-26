@@ -7,6 +7,7 @@ import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
 import 'package:fl_clash/providers/config.dart';
 import 'package:fl_clash/state.dart';
+import 'package:fl_clash/views/dashboard/widgets/live_status.dart';
 import 'package:fl_clash/widgets/widgets.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,7 +60,7 @@ class DeveloperView extends ConsumerWidget {
               unawaited(coreAction.crash());
             },
           ),
-        if (selfUpdateSuffix != null)
+        if (selfUpdateAsset != null)
           ListItem(
             title: Text(appLocalizations.updateDownloadTest),
             onTap: () {
@@ -69,6 +70,10 @@ class DeveloperView extends ConsumerWidget {
               );
             },
           ),
+        ListItem(
+          title: Text(appLocalizations.liveStatusTest),
+          onTap: () => showLiveStatusPreview(context),
+        ),
         ListItem(
           title: Text(appLocalizations.clearData),
           onTap: () async {
@@ -103,7 +108,7 @@ class DeveloperView extends ConsumerWidget {
     return BaseScaffold(
       title: appLocalizations.developerMode,
       body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+        padding: context.listInsets.page().copyWith(
           top: context.sectionsTopPadding,
           bottom: 16 + context.bottomInset,
         ),

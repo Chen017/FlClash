@@ -62,11 +62,8 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
         ref.read(setupActionProvider.notifier).syncSuspend();
       }
     });
-    final systemDns = systemDnsCoordinator;
-    if (systemDns != null) {
-      ref.listenManual(shouldPatchSystemDnsProvider, (prev, next) {
-        unawaited(systemDns.sync(next));
-      }, fireImmediately: true);
+    if (system.isMacOS && !safeModeBuild) {
+      unawaited(restoreLegacySystemDns());
     }
   }
 
@@ -77,7 +74,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
   }
 
   void _updateVisible(AppLifecycleState? state) {
-    ref.read(appVisibleProvider.notifier).value = switch (state) {
+    ref.read(appVisibleProvider.notifier).shown = switch (state) {
       null || AppLifecycleState.resumed || AppLifecycleState.inactive => true,
       AppLifecycleState.hidden ||
       AppLifecycleState.paused ||
@@ -91,7 +88,7 @@ class _AppStateManagerState extends ConsumerState<AppStateManager>
     if (state == AppLifecycleState.resumed) {
       unawaited(ref.read(locationPermissionsProvider.notifier).refresh());
       // A certificate removed meanwhile stops decryption before the next start.
-      if (mitmFeature && ref.read(patchClashConfigProvider).mitm.enable) {
+      if (rsFeature && ref.read(patchClashConfigProvider).mitm.enable) {
         unawaited(ref.read(mitmTrustStateProvider.notifier).refresh());
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -251,8 +251,6 @@ class _EditorPageState extends ConsumerState<EditorPage>
     _heldDocument = null;
     if (held != null) {
       _show(held);
-    } else {
-      setState(() {});
     }
   }
 
@@ -448,7 +446,6 @@ class _EditorPageState extends ConsumerState<EditorPage>
                 schema: widget.schema,
                 readOnly: readOnly,
                 undoController: _undoController,
-                showsLoading: routeSettled,
                 onReady: _handleReady,
               ),
             ),
@@ -468,7 +465,6 @@ class EditorView extends ConsumerStatefulWidget {
   final EditorSchema schema;
   final bool readOnly;
   final UndoRedoController? undoController;
-  final bool showsLoading;
   final VoidCallback? onReady;
 
   const EditorView({
@@ -478,7 +474,6 @@ class EditorView extends ConsumerStatefulWidget {
     this.schema = EditorSchema.config,
     this.readOnly = false,
     this.undoController,
-    this.showsLoading = true,
     this.onReady,
   });
 
@@ -524,7 +519,8 @@ class EditorViewState extends ConsumerState<EditorView> {
     }
     final controller = _controller;
     if (controller == null) {
-      _controller = _load(CodeForgeController(), document);
+      _controller = _load(CodeForgeController(), document)
+        ..setUndoController(_undoController);
       _findController = FindController(_controller!);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -572,8 +568,7 @@ class EditorViewState extends ConsumerState<EditorView> {
       language: widget.language,
       schema: widget.schema,
       error: _initError,
-      isLoading:
-          widget.showsLoading && _initError == null && controller == null,
+      isLoading: _initError == null && controller == null,
     );
   }
 }
@@ -627,33 +622,24 @@ class _EditorBody extends StatelessWidget {
     final controller = this.controller;
     final findController = this.findController;
     final error = this.error;
-    return Stack(
-      children: [
-        if (error != null)
-          NullStatus(
-            label: context.appLocalizations.editorUnavailable,
-            description: '$error',
-            illustration: NullStatusIllustration.error,
-          )
-        else if (controller != null && findController != null)
-          _CodeEditor(
-            controller: controller,
-            findController: findController,
-            undoController: undoController,
-            readOnly: readOnly,
-            language: language,
-            schema: schema,
-          ),
-        FadeBox(
-          child: isLoading
-              ? Container(
-                  color: context.colorScheme.surface,
-                  alignment: Alignment.center,
-                  child: const ActivityIndicator.page(),
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
+    return NullStatusSwitcher(
+      isLoading: isLoading,
+      child: error != null
+          ? NullStatus(
+              label: context.appLocalizations.editorUnavailable,
+              description: '$error',
+              illustration: NullStatusIllustration.error,
+            )
+          : controller != null && findController != null
+          ? _CodeEditor(
+              controller: controller,
+              findController: findController,
+              undoController: undoController,
+              readOnly: readOnly,
+              language: language,
+              schema: schema,
+            )
+          : const SizedBox.shrink(),
     );
   }
 }

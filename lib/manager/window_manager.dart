@@ -11,7 +11,7 @@ import 'package:fl_clash/ui/ui.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window/window.dart';
+import 'package:rust_api/window.dart';
 
 const _windowGeometryDelay = Duration(milliseconds: 120);
 
@@ -93,6 +93,16 @@ class _WindowContainerState extends ConsumerState<WindowManager>
   void onWindowClose() async {
     await ref.read(systemActionProvider.notifier).handleClose();
     super.onWindowClose();
+  }
+
+  @override
+  void onWindowScreensUnseen() {
+    ref.read(screensSeenProvider.notifier).value = false;
+  }
+
+  @override
+  void onWindowScreensSeen() {
+    ref.read(screensSeenProvider.notifier).value = true;
   }
 
   /// Another launch, or a Dock reopen, asked for the window.
@@ -200,6 +210,85 @@ class _WindowContainerState extends ConsumerState<WindowManager>
     unawaited(_terminateSubscription?.cancel());
     desktopWindow.removeListener(this);
     super.dispose();
+  }
+}
+
+/// Takes no focus while the window is hidden; see .agents/architecture.md.
+class HiddenWindowFocusGuard extends StatefulWidget {
+  final ValueListenable<bool> shown;
+  final Widget child;
+
+  const HiddenWindowFocusGuard({
+    super.key,
+    required this.shown,
+    required this.child,
+  });
+
+  @override
+  State<HiddenWindowFocusGuard> createState() => _HiddenWindowFocusGuardState();
+}
+
+class _HiddenWindowFocusGuardState extends State<HiddenWindowFocusGuard> {
+  final _node = FocusNode(
+    debugLabel: 'HiddenWindowFocusGuard',
+    canRequestFocus: false,
+    skipTraversal: true,
+  );
+  FocusNode? _held;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.shown.addListener(_onShownChanged);
+  }
+
+  @override
+  void didUpdateWidget(HiddenWindowFocusGuard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.shown != widget.shown) {
+      oldWidget.shown.removeListener(_onShownChanged);
+      widget.shown.addListener(_onShownChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.shown.removeListener(_onShownChanged);
+    _node.dispose();
+    super.dispose();
+  }
+
+  void _onShownChanged() {
+    if (!widget.shown.value) {
+      _held = _node.hasFocus ? FocusManager.instance.primaryFocus : null;
+    } else {
+      // The framework's restore on resume can precede the frame lifting the
+      // exclusion and be refused.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _restore());
+    }
+    setState(() {});
+  }
+
+  void _restore() {
+    final held = _held;
+    _held = null;
+    if (!mounted || !widget.shown.value || held == null) {
+      return;
+    }
+    if (held.context != null) {
+      held.requestFocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = widget.shown.value;
+    return Focus(
+      focusNode: _node,
+      descendantsAreFocusable: shown,
+      descendantsAreTraversable: shown,
+      child: widget.child,
+    );
   }
 }
 
@@ -405,7 +494,8 @@ class _WindowHeaderState extends ConsumerState<WindowHeader> {
       height: kHeaderHeight,
       backdropOpacity: backdropOpacity,
       onDragStart: desktopWindow.startDragging,
-      onDoubleTap: caption.toggleMaximized,
+      // rust_api answers title-bar double clicks on macOS by the system setting.
+      onDoubleTap: system.isMacOS ? null : caption.toggleMaximized,
       title: system.isMacOS ? const Text(appName) : null,
       actions: system.isMacOS
           ? null
@@ -427,7 +517,7 @@ class WindowHeaderBar extends StatelessWidget {
     super.key,
     required this.height,
     required this.onDragStart,
-    required this.onDoubleTap,
+    this.onDoubleTap,
     this.backdropOpacity,
     this.title,
     this.actions,
@@ -435,7 +525,7 @@ class WindowHeaderBar extends StatelessWidget {
 
   final double height;
   final VoidCallback onDragStart;
-  final VoidCallback onDoubleTap;
+  final VoidCallback? onDoubleTap;
   final double? backdropOpacity;
   final Widget? title;
   final Widget? actions;

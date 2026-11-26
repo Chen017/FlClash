@@ -4,7 +4,7 @@ import 'dart:isolate';
 
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/enum/enum.dart';
-import 'package:fl_clash/features/mitm/module_editor.dart';
+import 'package:fl_clash/features/features.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/action.dart';
 import 'package:fl_clash/providers/app.dart';
@@ -93,7 +93,7 @@ class _ResourcesViewState extends ConsumerState<ResourcesView> {
     modules: [
       for (final module
           in ref.read(mitmModulesProvider).value ?? <MitmModule>[])
-        if (mitmFeature && module.isRemote) module,
+        if (rsFeature && module.isRemote) module,
     ],
   );
 
@@ -192,13 +192,10 @@ class _ResourcesViewState extends ConsumerState<ResourcesView> {
       ],
       body: NullStatusSwitcher(
         isLoading: resources == null,
-        loadingStatus: const NullStatus(
-          illustration: NullStatusIllustration.data,
-        ),
         child: CustomScrollView(
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16).copyWith(
+              padding: context.listInsets.page().copyWith(
                 top: context.sectionsTopPadding,
                 bottom: 16 + context.bottomInset,
               ),
@@ -258,7 +255,7 @@ class _ResourcesViewState extends ConsumerState<ResourcesView> {
                       key: ValueKey(script.id),
                     ),
                   ),
-                  if (mitmFeature)
+                  if (rsFeature)
                     generateSliverSection(
                       title: appLocalizations.mitmModules,
                       items: modules,
@@ -653,7 +650,12 @@ class _ModuleItem extends ConsumerWidget {
       chip: null,
       lastUpdateTime: module.lastUpdateTime,
       isUpdating: ref.watch(isUpdatingProvider(module.updatingKey)),
-      onSync: () => updateMitmModule(ref, module),
+      onSync: () async {
+        final updated = await ref
+            .read(mitmModulesActionProvider.notifier)
+            .updateModule(module);
+        await offerMitmModule(ref, updated);
+      },
     );
   }
 }

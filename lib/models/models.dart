@@ -1,11 +1,16 @@
 export 'app.dart';
+export 'capabilities.dart';
 export 'changelog.dart';
 export 'clash_config.dart';
 export 'common.dart';
 export 'config.dart';
+export 'connection_log.dart';
+export 'connection_query.dart';
 export 'core.dart';
 export 'ip_quality.dart';
 export 'profile.dart';
 export 'record_filter.dart';
 export 'references.dart';
+export 'rule_table.dart';
 export 'state.dart';
+export 'tracker_speed_sampler.dart';
