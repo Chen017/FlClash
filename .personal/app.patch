@@ -18,7 +18,7 @@ index 9d33b61773ffcad802f783670f720d1da8fc833b..f1a990f9bd599ea7e7f80654ad74ac7d
  *.log
  *.pyc
 diff --git a/android/app/build.gradle.kts b/android/app/build.gradle.kts
-index 80cfed830ccf5feb4eac8a2498b785abf2fcd9f8..0a7ded603f619bcc248c203be3c57da278205f73 100644
+index d2dc4a24f5f1e8db939289f6a595d8302e62f4b2..94851a6398967fff4c359857673ddb148ba32283 100644
 --- a/android/app/build.gradle.kts
 +++ b/android/app/build.gradle.kts
 @@ -14,12 +14,13 @@ val localProperties = Properties().apply {
@@ -75,27 +75,28 @@ diff --git a/android/gradle.properties b/android/gradle.properties
 index 158a301465b44293523b3c913e39cfabc5b5c39e..804aa3cdbb5bf9eb1b4c5699ca7f33a418e66f94 100644
 --- a/android/gradle.properties
 +++ b/android/gradle.properties
-@@ -1,6 +1,7 @@
+@@ -1,5 +1,6 @@
  org.gradle.jvmargs=-Xmx4G
  android.useAndroidX=true
 +force-version-code-ignoring-abi=true
  # Flutter's migrators write false for either key that is missing, so both stay explicit.
  android.builtInKotlin=true
  # android_file_picker 2.x, pulled in by file_picker 13, configures the legacy LibraryExtension.
- android.newDsl=false
 diff --git a/lib/common/constant.dart b/lib/common/constant.dart
-index b3c7a0371d78b5c38f5f045471a38b24f94ed8fd..946131d644132e79faa8cf22760f322f1d82cab6 100644
+index 8af0699e54e606e17715f42920446c3a45110db8..57f2ff1b8edf097cc33d2cc09b1a11afebba6692 100644
 --- a/lib/common/constant.dart
 +++ b/lib/common/constant.dart
-@@ -135,5 +135,5 @@
+@@ -137,7 +137,7 @@ const configKey = 'config';
+ const systemDnsRecordKey = 'system_dns_record';
  const bootRecordKey = 'boot_record';
  const appliedConfigMd5Key = 'applied_config_md5';
 -const repository = 'chen08209/FlClash';
 +const repository = 'Chen017/FlClash';
  const maxMobileWidth = 600;
  const maxLaptopWidth = 840;
+ const defaultTestUrl = 'https://www.gstatic.com/generate_204';
 diff --git a/lib/common/package.dart b/lib/common/package.dart
-index 5ae7e94582f7b266d9d5aa54e74c7eb56d96d101..9f8bf0b00b1f438f13b4e8bf72e1250007bbb2f0 100644
+index 0a8ec71a2e72377b19c63eb7380137c4b9cbb616..3a67fd11ce238cde88c8fb67f3a857b9379a70b3 100644
 --- a/lib/common/package.dart
 +++ b/lib/common/package.dart
 @@ -5,6 +5,9 @@ import 'package:package_info_plus/package_info_plus.dart';
@@ -108,86 +109,23 @@ index 5ae7e94582f7b266d9d5aa54e74c7eb56d96d101..9f8bf0b00b1f438f13b4e8bf72e12500
    String get ua => [
      '$appName/v$version',
      'clash-verge',
-@@ -13,30 +16,43 @@ extension PackageInfoExtension on PackageInfo {
- }
- 
- int compareVersions(String version1, String version2) {
--  final List<String> v1 = version1.split('+')[0].split('.');
--  final List<String> v2 = version2.split('+')[0].split('.');
--  final int major1 = int.parse(v1[0]);
--  final int major2 = int.parse(v2[0]);
--  if (major1 != major2) {
--    return major1.compareTo(major2);
-+  final parsed1 = _parseVersion(version1);
-+  final parsed2 = _parseVersion(version2);
-+  for (var i = 0; i < 3; i++) {
-+    if (parsed1.core[i] != parsed2.core[i]) {
-+      return parsed1.core[i].compareTo(parsed2.core[i]);
-+    }
-   }
--  final int minor1 = v1.length > 1 ? int.parse(v1[1]) : 0;
--  final int minor2 = v2.length > 1 ? int.parse(v2[1]) : 0;
--  if (minor1 != minor2) {
--    return minor1.compareTo(minor2);
-+  if (parsed1.personalRevision != null || parsed2.personalRevision != null) {
-+    final rev1 = parsed1.personalRevision ?? 0;
-+    final rev2 = parsed2.personalRevision ?? 0;
-+    return rev1.compareTo(rev2);
-   }
--  final int patch1 = v1.length > 2 ? int.parse(v1[2]) : 0;
--  final int patch2 = v2.length > 2 ? int.parse(v2[2]) : 0;
--  if (patch1 != patch2) {
--    return patch1.compareTo(patch2);
-+  return parsed1.build.compareTo(parsed2.build);
-+}
-+
-+({List<int> core, int? personalRevision, int build}) _parseVersion(
-+  String raw,
-+) {
-+  final normalized = raw.startsWith('v') ? raw.substring(1) : raw;
-+  final plusParts = normalized.split('+');
-+  final build = plusParts.length > 1 ? int.tryParse(plusParts[1]) ?? 0 : 0;
-+  final dashParts = plusParts[0].split('-');
-+  final coreParts = dashParts[0].split('.');
-+  final core = [
-+    int.parse(coreParts[0]),
-+    coreParts.length > 1 ? int.parse(coreParts[1]) : 0,
-+    coreParts.length > 2 ? int.parse(coreParts[2]) : 0,
-+  ];
-+  int? personalRevision;
-+  if (dashParts.length > 1) {
-+    final suffix = dashParts.sublist(1).join('-');
-+    final match = RegExp(r'^personal(?:\.(\d+))?$').firstMatch(suffix);
-+    if (match != null) {
-+      personalRevision = match.group(1) != null ? int.parse(match.group(1)!) : 1;
-+    }
-   }
--  final int build1 = version1.contains('+')
--      ? int.parse(version1.split('+')[1])
--      : 0;
--  final int build2 = version2.contains('+')
--      ? int.parse(version2.split('+')[1])
--      : 0;
--  return build1.compareTo(build2);
-+  return (core: core, personalRevision: personalRevision, build: build);
- }
- 
- const releaseNotesBeginMarker = '<!-- flclash:changelog:begin -->';
 diff --git a/lib/common/request.dart b/lib/common/request.dart
-index 0f00bf0f92716e9afd60795330b006a920273683..e9a470cc6bd6c386695cc20a4b50e78b229ad989 100644
+index 4ebe6ed5b2164c192c539583fe63a32c93639a62..e1cc1c8b0d7dfca21aa5432ac03b550c507ea434 100644
 --- a/lib/common/request.dart
 +++ b/lib/common/request.dart
-@@ -108,7 +108,7 @@ class Request {
-   Future<Map<String, dynamic>?> checkForUpdate() async {
-     final release = await latestRelease();
-     final remoteVersion = release['tag_name'] as String;
--    final version = globalState.packageInfo.version;
-+    final version = globalState.packageInfo.updateVersion;
-     final hasUpdate =
-         compareVersions(remoteVersion.replaceAll('v', ''), version) > 0;
-     return hasUpdate ? release : null;
+@@ -113,7 +113,9 @@ class Request {
+   Future<Map<String, dynamic>?> checkForUpdate(UpdateChannel channel) async {
+     final release = await newestRelease(channel);
+     final remote = ReleaseVersion.tryParse(release['tag_name'] as String);
+-    final installed = installedReleaseVersion(globalState.packageInfo.version);
++    final installed = installedReleaseVersion(
++      globalState.packageInfo.updateVersion,
++    );
+     return remote != null && remote > installed ? release : null;
+   }
+ 
 diff --git a/lib/features/editor/clash_schema.dart b/lib/features/editor/clash_schema.dart
-index 042320dcd04f42f8928dce635af324fe17a3905f..bcc03f003ec43c9c1426004b88902550eeaf90e6 100644
+index cbb127f596ed2dac52050e8148b6b222a11e6bc4..6f9a9771ddc4b08f2698696210ac22fa209568ad 100644
 --- a/lib/features/editor/clash_schema.dart
 +++ b/lib/features/editor/clash_schema.dart
 @@ -533,9 +533,12 @@ const _vlessTransport = {
@@ -205,13 +143,17 @@ index 042320dcd04f42f8928dce635af324fe17a3905f..bcc03f003ec43c9c1426004b88902550
        'headers': YamlSchema.dict(_str),
 diff --git a/test/common/personal_update_test.dart b/test/common/personal_update_test.dart
 new file mode 100644
-index 0000000000000000000000000000000000000000..dca109dd28feaa44f53c4c7218bc0afc07248459
+index 0000000000000000000000000000000000000000..f59eb74c5b037b5129a628e34e9bd7dd8fc7262b
 --- /dev/null
 +++ b/test/common/personal_update_test.dart
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,60 @@
++import 'package:fl_clash/common/app_update.dart';
 +import 'package:fl_clash/common/package.dart';
++import 'package:fl_clash/common/release_version.dart';
 +import 'package:flutter_test/flutter_test.dart';
 +import 'package:package_info_plus/package_info_plus.dart';
++
++ReleaseVersion _remote(String tag) => ReleaseVersion.tryParse(tag)!;
 +
 +void main() {
 +  final legacyInstalled = PackageInfo(
@@ -223,32 +165,53 @@ index 0000000000000000000000000000000000000000..dca109dd28feaa44f53c4c7218bc0afc
 +  final personalInstalled = PackageInfo(
 +    appName: 'FlClash',
 +    packageName: 'io.github.chen017.flclash',
-+    version: '0.9.4-personal',
++    version: '0.9.5-personal',
 +    buildNumber: '8',
 +  );
 +
 +  test('a core-only release updates once without an endless update prompt', () {
-+    expect(compareVersions('0.9.3+8', legacyInstalled.updateVersion), greaterThan(0));
-+    expect(compareVersions('0.9.3+7', legacyInstalled.updateVersion), 0);
-+    expect(compareVersions('0.9.3+6', legacyInstalled.updateVersion), lessThan(0));
-+    expect(compareVersions('0.9.4+8', legacyInstalled.updateVersion), greaterThan(0));
++    final installed = installedReleaseVersion(
++      legacyInstalled.updateVersion,
++      builtTag: '',
++    );
++    expect(_remote('v0.9.3+8'), greaterThan(installed));
++    expect(_remote('v0.9.3+7').compareTo(installed), 0);
++    expect(_remote('v0.9.3+6'), lessThan(installed));
++    expect(_remote('v0.9.4+8'), greaterThan(installed));
 +  });
 +
 +  test('personal version tags order cleanly without endless prompts', () {
-+    expect(personalInstalled.updateVersion, '0.9.4-personal');
-+    expect(compareVersions('0.9.4-personal', legacyInstalled.updateVersion), greaterThan(0));
-+    expect(compareVersions('0.9.4-personal', personalInstalled.updateVersion), 0);
-+    expect(compareVersions('0.9.4-personal.2', personalInstalled.updateVersion), greaterThan(0));
-+    expect(compareVersions('0.9.4-personal.10', '0.9.4-personal.2'), greaterThan(0));
-+    expect(compareVersions('0.9.5-personal', '0.9.4-personal.2'), greaterThan(0));
-+    expect(compareVersions('0.9.4-personal', '0.9.4-personal.2'), lessThan(0));
++    final legacy = installedReleaseVersion(
++      legacyInstalled.updateVersion,
++      builtTag: '',
++    );
++    final personal = installedReleaseVersion(
++      personalInstalled.updateVersion,
++      builtTag: '',
++    );
++    expect(personalInstalled.updateVersion, '0.9.5-personal');
++    expect(_remote('v0.9.5-personal'), greaterThan(legacy));
++    expect(_remote('v0.9.5-personal').compareTo(personal), 0);
++    expect(_remote('v0.9.5-personal.2'), greaterThan(personal));
++    expect(
++      _remote('v0.9.5-personal.10'),
++      greaterThan(_remote('v0.9.5-personal.2')),
++    );
++    expect(
++      _remote('v0.9.6-personal'),
++      greaterThan(_remote('v0.9.5-personal.2')),
++    );
++    expect(
++      _remote('v0.9.5-personal'),
++      lessThan(_remote('v0.9.5-personal.2')),
++    );
 +  });
 +}
 diff --git a/test/core/protocol_contract_test.dart b/test/core/protocol_contract_test.dart
-index a9381ce19551744994407f7ffaa29612646fedae..48a89f39d2090c4b2c59465bd43c0c945c90ef5f 100644
+index 19ec75c5b84fc2a9fe595415a04f2a4e6d4a9d80..e5e87d7d3f95fdcd4003ae1f4da443d40e0b312e 100644
 --- a/test/core/protocol_contract_test.dart
 +++ b/test/core/protocol_contract_test.dart
-@@ -197,6 +197,17 @@ class _EmptyConfigCoreHandler extends _RecordingCoreHandler {
+@@ -242,6 +242,17 @@ class _EmptyConfigCoreHandler extends _RecordingCoreHandler {
  }
  
  void main() {
