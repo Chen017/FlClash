@@ -40,7 +40,7 @@ jobs:
       contents: read
       copilot-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -57,7 +57,113 @@ jobs:
             echo "Conflict no longer reproduces; no AI repair is necessary."
             exit 1
           fi
-      - uses: actions/setup-node@v7
+          python3 - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          context_path = Path('conflict-context.txt')
+          text = context_path.read_text(encoding='utf-8', errors='replace')
+          source = Path('.personal/work/source')
+          core = source / 'core/Clash.Meta'
+          if not source.is_dir() or not core.is_dir():
+              raise SystemExit('Preparation failed before upstream worktree creation; aborting AI repair.')
+
+          app_conflict = 'app.patch conflicts with upstream' in text
+          core_conflict = 'core.patch conflicts with upstream' in text
+          if not app_conflict and not core_conflict:
+              raise SystemExit('Preparation failed without reporting a patch conflict; aborting AI repair.')
+
+          def git_out(tree, *args):
+              return subprocess.check_output(['git', '-C', str(tree), *args], text=True, errors='replace')
+
+          def unmerged_list(tree, exclude_prefixes=()):
+              out = git_out(tree, 'diff', '--name-only', '--diff-filter=U', '-z')
+              items = [p for p in out.split('\0') if p]
+              return [p for p in items if not any(p == pref or p.startswith(pref + '/') for pref in exclude_prefixes)]
+
+          def collect_rej(tree, exclude_prefixes=()):
+              files = []
+              for p in sorted(tree.rglob('*.rej')):
+                  rel = p.relative_to(tree).as_posix()
+                  if any(rel == pref or rel.startswith(pref + '/') for pref in exclude_prefixes):
+                      continue
+                  files.append(rel)
+              return files
+
+          def materialize_reject(tree, patch_file, exclude_prefixes=()):
+              status_args = ['status', '--porcelain']
+              if exclude_prefixes:
+                  status_args.append('--ignore-submodules=all')
+              if not git_out(tree, *status_args).strip():
+                  res = subprocess.run(
+                      ['git', '-C', str(tree), 'apply', '--reject', str(patch_file.resolve())],
+                      capture_output=True, text=True, errors='replace',
+                  )
+                  return res.stdout + res.stderr
+              return ''
+
+          notes = []
+          if app_conflict:
+              rej_out = materialize_reject(source, Path('.personal/app.patch'), ('core/Clash.Meta', 'plugins/prism_ui'))
+              if rej_out:
+                  notes.append('--- app.patch --reject fallback ---\n' + rej_out)
+              # Also probe core.patch proactively when app.patch failed first.
+              core_patch = Path('.personal/core.patch').resolve()
+              check_fwd = subprocess.run(['git', '-C', str(core), 'apply', '--check', str(core_patch)], capture_output=True)
+              check_rev = subprocess.run(['git', '-C', str(core), 'apply', '--reverse', '--check', str(core_patch)], capture_output=True)
+              if check_fwd.returncode != 0 and check_rev.returncode != 0:
+                  rel_py = Path('.personal/release.py').read_text(encoding='utf-8')
+                  m = re.search(r"^CORE_PATCH_BASE\s*=\s*['\"]([0-9a-f]{40})['\"]", rel_py, re.M)
+                  if m:
+                      rev = m.group(1)
+                      if subprocess.run(['git', '-C', str(core), 'cat-file', '-e', rev + '^{commit}'], capture_output=True).returncode != 0:
+                          subprocess.run(
+                              ['git', '-C', str(core), 'fetch', '--depth', '1', '--no-tags', 'https://github.com/chen08209/Clash.Meta.git', rev],
+                              check=True,
+                          )
+                  merge_core = subprocess.run(
+                      ['git', '-C', str(core), 'apply', '--3way', str(core_patch)],
+                      capture_output=True, text=True, errors='replace',
+                  )
+                  if merge_core.returncode == 0:
+                      subprocess.run(['git', '-C', str(core), 'reset', '--hard', 'HEAD'], check=True)
+                      subprocess.run(['git', '-C', str(core), 'clean', '-fd'], check=True)
+                  else:
+                      core_conflict = True
+                      notes.append('--- core.patch proactive --3way conflict ---\n' + merge_core.stdout + merge_core.stderr)
+                      core_rej_out = materialize_reject(core, Path('.personal/core.patch'))
+                      if core_rej_out:
+                          notes.append('--- core.patch --reject fallback ---\n' + core_rej_out)
+          elif core_conflict:
+              core_rej_out = materialize_reject(core, Path('.personal/core.patch'))
+              if core_rej_out:
+                  notes.append('--- core.patch --reject fallback ---\n' + core_rej_out)
+
+          app_unmerged = unmerged_list(source, ('core/Clash.Meta', 'plugins/prism_ui')) if app_conflict else []
+          core_unmerged = unmerged_list(core) if core_conflict else []
+          app_rej = collect_rej(source, ('core/Clash.Meta', 'plugins/prism_ui')) if app_conflict else []
+          core_rej = collect_rej(core) if core_conflict else []
+
+          for rel in app_rej:
+              notes.append(f'--- REJECT .personal/work/source/{rel} ---\n' + (source / rel).read_text(encoding='utf-8', errors='replace'))
+          for rel in core_rej:
+              notes.append(f'--- REJECT .personal/work/source/core/Clash.Meta/{rel} ---\n' + (core / rel).read_text(encoding='utf-8', errors='replace'))
+
+          targets = {
+              'app': app_conflict,
+              'core': core_conflict,
+              'app_unmerged': app_unmerged,
+              'core_unmerged': core_unmerged,
+              'app_rej': app_rej,
+              'core_rej': core_rej,
+          }
+          Path('.ai-repair-targets.json').write_text(json.dumps(targets, indent=2) + '\n', encoding='utf-8')
+          notes.append('--- AI repair targets ---\n' + json.dumps(targets, indent=2))
+          context_path.write_text(text.rstrip() + '\n\n' + '\n\n'.join(notes) + '\n', encoding='utf-8')
+          PY
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
       - name: Install Copilot CLI
@@ -67,34 +173,125 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          cat > .ai-repair-prompt.txt <<'PROMPT'
-          A stable upstream release broke the maintained patch in this repository.
-          Read conflict-context.txt, .personal/work/source, the relevant upstream code, and the original maintained patches.
-          Preserve all custom behavior and upstream improvements; resolve the conflict without dropping features.
-          You are allowed to MODIFY ONLY these tracked patch files: .personal/app.patch, .personal/core.patch.
-          Do not modify scripts, workflows, source worktrees, test files, or any other tracked files.
-          Do not run commands, commit, push, create PRs, delete files, or request a second AI repair attempt.
-          Produce the smallest patch-file changes that apply cleanly to the latest stable upstream source.
-          CI will independently clean the preparation tree, reapply the patches and run tests.
-          If the intent cannot be preserved reliably, leave the patch unchanged so CI fails safely.
-          PROMPT
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          targets = json.loads(Path('.ai-repair-targets.json').read_text(encoding='utf-8'))
+          lines = [
+              'A stable upstream release broke one or more maintained patches in this repository.',
+              'Read conflict-context.txt, .personal/README.md, the original maintained patch(es), and the relevant upstream code.',
+              'Preserve all custom behavior and upstream improvements; resolve the conflict without dropping features.',
+              'Do NOT edit .personal/app.patch, .personal/core.patch, or any tracked file in the repository root.',
+              'Instead, edit ONLY the conflicted/related source files directly inside the prepared upstream worktree(s):',
+          ]
+          if targets['app']:
+              lines.append(
+                  '- For app changes: edit files under .personal/work/source (excluding submodules core/Clash.Meta and plugins/prism_ui).'
+                  f" Conflicted/rejected files: {targets['app_unmerged'] + targets['app_rej']}"
+              )
+          if targets['core']:
+              lines.append(
+                  '- For core changes: edit files under .personal/work/source/core/Clash.Meta.'
+                  f" Conflicted/rejected files: {targets['core_unmerged'] + targets['core_rej']}"
+              )
+          lines.extend([
+              'Remove all git conflict markers (<<<<<<<, =======, >>>>>>>, |||||||) from every edited file and resolve every rejected hunk.',
+              'Do NOT modify .github/ or .personal/ inside the prepared worktree(s).',
+              'Do NOT run commands, commit, push, create PRs, delete source files, or request a second AI repair attempt.',
+              'CI will regenerate the tracked patch file(s) from your worktree edits via git diff, clean the worktree, reapply the patches, and run tests.',
+              'If the intent cannot be preserved reliably, leave the conflicted files unchanged so CI fails safely.',
+          ])
+          Path('.ai-repair-prompt.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
           copilot -p "$(cat .ai-repair-prompt.txt)" --allow-tool=read --allow-tool=write --deny-tool=shell --no-ask-user
-      - name: Verify file scope, reapply patches on clean upstream and run tests
+      - name: Regenerate patches, verify scope, reapply on clean upstream and run tests
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import json
           import subprocess
-          changed = subprocess.check_output(['git', 'diff', '--name-only', '-z']).decode().split('\0')
-          changed = [path for path in changed if path]
-          if not changed or any(not (path in {'.personal/app.patch', '.personal/core.patch'}) for path in changed):
-              raise SystemExit(f'Unsafe or empty AI change set: {changed!r}')
+          from pathlib import Path
+
+          if subprocess.check_output(['git', 'diff', '--name-only', '-z']).decode().strip('\0'):
+              raise SystemExit('AI unexpectedly modified tracked files in the repository root')
           if subprocess.check_output(['git', 'diff', '--cached', '--name-only']).strip():
-              raise SystemExit('Unexpected staged changes from AI')
+              raise SystemExit('Unexpected staged changes in the repository root')
+
+          targets = json.loads(Path('.ai-repair-targets.json').read_text(encoding='utf-8'))
+          source = Path('.personal/work/source')
+          core = source / 'core/Clash.Meta'
+
+          def check_tree(tree, out_patch, unmerged, add_args, diff_args, exclude_prefixes=()):
+              for ext in ('*.rej', '*.orig'):
+                  for artifact in tree.rglob(ext):
+                      rel = artifact.relative_to(tree).as_posix()
+                      if any(rel == pref or rel.startswith(pref + '/') for pref in exclude_prefixes):
+                          continue
+                      artifact.unlink()
+
+              subprocess.run(['git', '-C', str(tree), 'add', *add_args], check=True)
+              staged = [
+                  p for p in subprocess.check_output(
+                      ['git', '-C', str(tree), 'diff', '--cached', '--name-only', '--ignore-submodules=all', '-z']
+                  ).decode().split('\0') if p
+              ]
+              if not staged:
+                  raise SystemExit(f'No changes produced in {tree} for {out_patch}')
+
+              forbidden = ('.github', '.personal', *exclude_prefixes)
+              bad = [p for p in staged if any(p == pref or p.startswith(pref + '/') for pref in forbidden)]
+              if bad:
+                  raise SystemExit(f'Forbidden paths modified inside {tree}: {bad!r}')
+
+              unmerged_set = set(unmerged)
+              for rel in staged:
+                  fp = tree / rel
+                  if not fp.is_file():
+                      continue
+                  raw = fp.read_bytes()
+                  if b'\x00' in raw:
+                      continue
+                  for lineno, line in enumerate(raw.decode('utf-8', errors='replace').splitlines(), 1):
+                      stripped = line.rstrip('\r')
+                      if stripped.startswith(('<<<<<<<', '>>>>>>>', '|||||||')) or (rel in unmerged_set and stripped == '======='):
+                          raise SystemExit(f'Leftover conflict marker in {tree}/{rel}:{lineno}')
+
+              patch_bytes = subprocess.check_output(['git', '-C', str(tree), 'diff', *diff_args])
+              if not patch_bytes.strip():
+                  raise SystemExit(f'Generated patch {out_patch} is empty')
+              Path(out_patch).write_bytes(patch_bytes)
+
+          if targets['app']:
+              check_tree(
+                  source,
+                  '.personal/app.patch',
+                  targets['app_unmerged'],
+                  ['-A', '--', '.', ':(exclude)core/Clash.Meta', ':(exclude)plugins/prism_ui'],
+                  ['--cached', '--full-index', '--binary', '--ignore-submodules=all'],
+                  exclude_prefixes=('core/Clash.Meta', 'plugins/prism_ui'),
+              )
+          if targets['core']:
+              check_tree(
+                  core,
+                  '.personal/core.patch',
+                  targets['core_unmerged'],
+                  ['-A'],
+                  ['--cached', '--full-index', '--binary'],
+              )
+
+          changed = [p for p in subprocess.check_output(['git', 'diff', '--name-only', '-z']).decode().split('\0') if p]
+          if not changed or any(p not in {'.personal/app.patch', '.personal/core.patch'} for p in changed):
+              raise SystemExit(f'Unsafe or empty patch regeneration set: {changed!r}')
+          if subprocess.check_output(['git', 'diff', '--cached', '--name-only']).strip():
+              raise SystemExit('Unexpected staged changes in the repository root')
           subprocess.run(['git', 'diff', '--check'], check=True)
-          print('Allowed maintenance patch changes:', changed)
+          print('Regenerated maintenance patches:', changed)
           PY
+          git diff --binary > repair.patch
+          test -s repair.patch
           git worktree remove --force --force ".personal/work/source" || true
           rm -rf ".personal/work"
           git worktree prune
@@ -103,9 +300,7 @@ jobs:
             python3 .personal/release.py prepare
             python3 -m unittest discover -s .personal -p 'test_*.py' -v
           ) 2>&1 | tee validation.log
-          git diff --binary > repair.patch
-          test -s repair.patch
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: one-shot-ai-repair
@@ -124,11 +319,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: one-shot-ai-repair
           path: .ai-candidate
@@ -158,4 +353,4 @@ jobs:
           git push origin "HEAD:refs/heads/$REPAIR_BRANCH"
           gh pr create --base "$GITHUB_REF_NAME" --head "$REPAIR_BRANCH" \
             --title "fix: AI-rebase upstream patches (review required)" \
-            --body "One Copilot CLI repair attempt was made after an upstream patch conflict. Only maintained patch files were changed. Fresh upstream patch application and focused checks passed in the repair job. **Review manually before merging.** No automatic merge or release occurs from this job. The original failed run and the 14-day diagnostic artifact remain available."
+            --body "One Copilot CLI repair attempt resolved the conflict directly in the prepared upstream worktree, and CI regenerated the maintained patch file(s) via git diff. Only maintained patch files were changed. Fresh upstream patch application and focused checks passed in the repair job. **Review manually before merging.** No automatic merge or release occurs from this job. The original failed run and the 14-day diagnostic artifact remain available."
